@@ -1,0 +1,870 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="data:application/json;base64,eyJuYW1lIjoiT3B0aWNhbCBUcmFuc2ZlciIsInNob3J0X25hbWUiOiJPcHRSeCIsImRpc3BsYXkiOiJzdGFuZGFsb25lIiwiYmFja2dyb3VuZF9jb2xvciI6IiMyMjIifQ==">
+<title>Optical Transfer — Receiver</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{
+  font-family:-apple-system,system-ui,monospace;
+  background:#222;color:#eee;
+  min-height:100vh;min-height:100dvh;
+  display:flex;flex-direction:column;align-items:center;
+  padding:12px;transition:background-color .6s;
+}
+h1{font-size:1.1em;color:#7cf;margin-bottom:8px}
+#status{font-size:1.8em;font-weight:bold;color:#fff;text-shadow:0 0 10px rgba(255,255,255,.4);margin:6px 0;text-align:center;min-height:1.4em}
+#sub{font-size:.82em;color:#aaa;text-align:center;min-height:1em;margin-bottom:8px}
+#prog-wrap{width:min(400px,92vw);background:rgba(255,255,255,.08);border-radius:5px;height:10px;overflow:hidden;margin:6px 0}
+#prog{height:100%;background:#3af;width:0%;transition:width .3s}
+#stats{font-size:.72em;color:#777;text-align:center;margin-bottom:6px;min-height:1em}
+#vid-wrap{position:relative;width:min(480px,92vw)}
+video{width:100%;border-radius:6px;display:block;background:#000}
+#overlay{position:absolute;top:0;left:0;width:100%;height:100%;border-radius:6px;pointer-events:none}
+#pcv{display:none}
+.btn{
+  border:none;color:#fff;padding:14px 32px;border-radius:8px;font-size:1.05em;
+  cursor:pointer;margin:10px 4px;-webkit-tap-highlight-color:transparent;font-family:inherit;
+}
+#btn-start{background:#3a7cd5}
+#btn-start:active{background:#5a9cf5}
+#btn-dl{display:none;background:#2d9e5a}
+#btn-resume{display:none;background:#cc8833}
+#btn-restart{display:none;background:#c44}
+#finfo{font-size:.78em;color:#aaa;text-align:center;margin-top:4px}
+#err{color:#f66;font-size:.82em;text-align:center;margin-top:6px;min-height:1em}
+</style>
+</head>
+<body>
+<h1>Optical Transfer — Receiver</h1>
+<div id="status">READY</div>
+<div id="sub">Tap Start to begin camera</div>
+<div id="prog-wrap"><div id="prog"></div></div>
+<div id="stats"></div>
+<div id="vid-wrap">
+  <video id="vid" playsinline autoplay muted></video>
+  <canvas id="overlay"></canvas>
+</div>
+<canvas id="pcv"></canvas>
+<button class="btn" id="btn-start">&#9654; Start Camera</button>
+<button class="btn" id="btn-dl">&#11015; Download File</button>
+<button class="btn" id="btn-resume">&#9654; Resume</button>
+<button class="btn" id="btn-restart">&#8634; Restart</button>
+<div id="finfo"></div>
+<div id="err"></div>
+
+<script>
+'use strict';
+
+// ═══════════════════════════════════════════════════════════════════════════
+// GF(256) Arithmetic — primitive polynomial 0x11D, generator α=2 (§4.1)
+// ═══════════════════════════════════════════════════════════════════════════
+const PRIM = 0x11D;
+const gfExp = new Uint8Array(512);
+const gfLog = new Uint8Array(256);
+{
+  let x = 1;
+  for (let i = 0; i < 255; i++) {
+    gfExp[i] = x;
+    gfLog[x] = i;
+    x <<= 1;
+    if (x & 0x100) x ^= PRIM;
+    x &= 0xFF;
+  }
+  for (let i = 255; i < 512; i++) gfExp[i] = gfExp[i - 255];
+}
+
+function gfMul(a, b) {
+  if (a === 0 || b === 0) return 0;
+  return gfExp[(gfLog[a] + gfLog[b]) % 255];
+}
+function gfInv(a) { return gfExp[255 - gfLog[a]]; }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Reed-Solomon Decoder — Berlekamp-Massey + Chien + Forney (§4.3)
+// ═══════════════════════════════════════════════════════════════════════════
+function rsDecode(data, nsym) {
+  const n = data.length, k = n - nsym;
+
+  // 1. Syndromes
+  const syn = new Array(nsym);
+  let allZero = true;
+  for (let j = 0; j < nsym; j++) {
+    let s = 0;
+    for (let i = 0; i < n; i++) s = gfMul(s, gfExp[j]) ^ data[i];
+    syn[j] = s;
+    if (s !== 0) allZero = false;
+  }
+  if (allZero) return data.slice(0, k);
+
+  // 2. Berlekamp-Massey
+  let C = [1], B = [1], L = 0, m = 1, b = 1;
+  for (let step = 0; step < nsym; step++) {
+    let d = syn[step];
+    for (let i = 1; i <= L && i < C.length; i++)
+      d ^= gfMul(C[i], syn[step - i]);
+
+    if (d === 0) { m++; continue; }
+
+    const T = C.slice();
+    const coef = gfMul(d, gfInv(b));
+    const padB = new Array(m).fill(0).concat(B);
+    while (C.length < padB.length) C.push(0);
+    for (let i = 0; i < padB.length; i++) C[i] ^= gfMul(coef, padB[i]);
+
+    if (2 * L <= step) { L = step + 1 - L; B = T; b = d; m = 1; }
+    else { m++; }
+  }
+
+  // 3. Chien search — find error positions
+  const errPos = [];
+  for (let i = 0; i < n; i++) {
+    let val = 0;
+    for (let j = 0; j < C.length; j++)
+      val ^= gfMul(C[j], gfExp[(j * (255 - i)) % 255]);
+    if (val === 0) errPos.push(n - 1 - i);
+  }
+  if (errPos.length !== L) return null;
+
+  // 4. Forney — error evaluator Ω = S·Λ mod x^nsym
+  const omLen = Math.min(nsym, syn.length + C.length - 1);
+  const omega = new Array(omLen).fill(0);
+  for (let i = 0; i < nsym; i++)
+    for (let j = 0; j < C.length && i + j < omLen; j++)
+      omega[i + j] ^= gfMul(syn[i], C[j]);
+
+  // 5. Error magnitudes and correction
+  const corrected = data.slice();
+  for (let idx = 0; idx < errPos.length; idx++) {
+    const pos = errPos[idx];
+    const Xi = gfExp[pos];
+    const XiInv = gfInv(Xi);
+
+    // Ω(Xi⁻¹) evaluated with Horner
+    let omVal = 0;
+    for (let j = omega.length - 1; j >= 0; j--)
+      omVal = gfMul(omVal, XiInv) ^ omega[j];
+
+    // Λ'(Xi⁻¹) — formal derivative (odd powers only)
+    let ld = 0;
+    for (let j = 1; j < C.length; j += 2)
+      ld ^= gfMul(C[j], gfExp[(j * (255 - pos)) % 255]);
+    if (ld === 0) return null;
+
+    corrected[pos] ^= gfMul(gfMul(Xi, omVal), gfInv(ld));
+  }
+  return corrected.slice(0, k);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// xorshift32 PRNG (§3.3)
+// ═══════════════════════════════════════════════════════════════════════════
+function xorshift32(state) {
+  if (state === 0) state = 1;
+  state ^= (state << 13);  state = state >>> 0;
+  state ^= (state >>> 17);
+  state ^= (state << 5);   state = state >>> 0;
+  return state;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Robust Soliton CDF (§3.4) — c=0.1, delta=0.5
+// ═══════════════════════════════════════════════════════════════════════════
+function robustSolitonCdf(K) {
+  const c = 0.1, delta = 0.5;
+  if (K <= 1) return [{ degree: 1, cum: 1.0 }];
+
+  const rho = new Float64Array(K + 1);
+  rho[1] = 1.0 / K;
+  for (let i = 2; i <= K; i++) rho[i] = 1.0 / (i * (i - 1));
+
+  let S = c * Math.log(K / delta) * Math.sqrt(K);
+  S = Math.max(S, 1.0);
+  const pivot = Math.max(1, Math.round(K / S));
+
+  const tau = new Float64Array(K + 1);
+  for (let i = 1; i < pivot && i <= K; i++) tau[i] = S / (i * K);
+  if (pivot <= K) tau[pivot] = S * Math.log(S / delta) / K;
+
+  let total = 0;
+  for (let i = 1; i <= K; i++) total += rho[i] + tau[i];
+
+  const cdf = [];
+  let cum = 0;
+  for (let d = 1; d <= K; d++) {
+    const prob = (rho[d] + tau[d]) / total;
+    if (prob > 1e-10) { cum += prob; cdf.push({ degree: d, cum: Math.min(cum, 1.0) }); }
+  }
+  if (cdf.length > 0) cdf[cdf.length - 1].cum = 1.0;
+  return cdf;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// LT Symbol Selection — recompute which blocks a symbol covers (§3.5/3.6)
+// ═══════════════════════════════════════════════════════════════════════════
+function recomputeSelection(i, K, cdf) {
+  // Degree — use Math.imul for 32-bit multiply (§13)
+  let state = xorshift32((Math.imul(i + 1, 2654435761)) >>> 0);
+  const r = state / 0xFFFFFFFF;
+  let degree = 1;
+  for (const entry of cdf) {
+    if (r <= entry.cum) { degree = entry.degree; break; }
+  }
+  degree = Math.min(degree, K);
+
+  // Block selection
+  let seed = ((Math.imul(i + 1, 1103515245) + 12345) >>> 0);
+  if (seed === 0) seed = 1;
+  const selected = new Set();
+  let st = seed, attempts = 0;
+  while (selected.size < degree && attempts < degree * 10) {
+    st = xorshift32(st);
+    selected.add(st % K);
+    attempts++;
+  }
+  return Array.from(selected);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// LT Fountain Decoder — queue-based peeling (§3.6)
+// ═══════════════════════════════════════════════════════════════════════════
+class FountainDecoder {
+  constructor(K, blockSize) {
+    this.K = K;
+    this.bs = blockSize;
+    this.decoded = new Array(K).fill(null);
+    this.decodedCount = 0;
+    this.symbols = [];      // { data: Uint8Array, blocks: Set }
+    this.cdf = null;
+    this.seenIdx = new Set();
+    // For each block index, track which symbols reference it
+    this.blockToSymbols = new Array(K);
+    for (let i = 0; i < K; i++) this.blockToSymbols[i] = [];
+  }
+
+  setCdf(cdf) { this.cdf = cdf; }
+
+  addSymbol(symbolIndex, data) {
+    if (this.decodedCount === this.K) return;
+    if (this.seenIdx.has(symbolIndex)) return;  // ignore duplicates (§6.10)
+    this.seenIdx.add(symbolIndex);
+
+    const blocks = new Set(recomputeSelection(symbolIndex, this.K, this.cdf));
+    const sym = { data: new Uint8Array(data), blocks };
+    const symIdx = this.symbols.length;
+    this.symbols.push(sym);
+
+    // XOR out any already-decoded blocks and reduce
+    for (const b of [...blocks]) {
+      if (this.decoded[b] !== null) {
+        for (let j = 0; j < this.bs; j++) sym.data[j] ^= this.decoded[b][j];
+        sym.blocks.delete(b);
+      } else {
+        this.blockToSymbols[b].push(symIdx);
+      }
+    }
+
+    // If reduced to degree 1, start peeling
+    if (sym.blocks.size === 1) this._peel(symIdx);
+  }
+
+  _peel(startSymIdx) {
+    const queue = [startSymIdx];
+    while (queue.length > 0) {
+      const si = queue.shift();
+      const sym = this.symbols[si];
+      if (sym.blocks.size !== 1) continue;
+
+      const blockIdx = sym.blocks.values().next().value;
+      if (this.decoded[blockIdx] !== null) continue;
+
+      // Decode this block
+      this.decoded[blockIdx] = new Uint8Array(sym.data);
+      this.decodedCount++;
+
+      // Reduce all other symbols referencing this block
+      for (const otherIdx of this.blockToSymbols[blockIdx]) {
+        if (otherIdx === si) continue;
+        const other = this.symbols[otherIdx];
+        if (!other.blocks.has(blockIdx)) continue;
+        for (let j = 0; j < this.bs; j++) other.data[j] ^= this.decoded[blockIdx][j];
+        other.blocks.delete(blockIdx);
+        if (other.blocks.size === 1) queue.push(otherIdx);
+      }
+      this.blockToSymbols[blockIdx] = [];  // no longer needed
+    }
+  }
+
+  isComplete() { return this.decodedCount === this.K; }
+  progress() { return this.K > 0 ? this.decodedCount / this.K : 0; }
+
+  reconstruct() {
+    if (!this.isComplete()) return null;
+    const out = new Uint8Array(this.K * this.bs);
+    for (let i = 0; i < this.K; i++) out.set(this.decoded[i], i * this.bs);
+    return out;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// RGB → HSV (§6.5)
+// ═══════════════════════════════════════════════════════════════════════════
+function rgbToHsv(r, g, b) {
+  r /= 255; g /= 255; b /= 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
+  const v = max, s = max === 0 ? 0 : d / max;
+  let h = 0;
+  if (d !== 0) {
+    if (max === r) h = 60 * (((g - b) / d) % 6);
+    else if (max === g) h = 60 * ((b - r) / d + 2);
+    else h = 60 * ((r - g) / d + 4);
+  }
+  if (h < 0) h += 360;
+  return [h, s * 100, v * 100];
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Color Classification — nearest-neighbor in RGB (§6.9)
+// ═══════════════════════════════════════════════════════════════════════════
+function classifyColor(r, g, b) {
+  const d0 = r * r + g * g + b * b;
+  const d1 = (r - 255) * (r - 255) + g * g + b * b;
+  const d2 = r * r + (g - 255) * (g - 255) + b * b;
+  const d3 = r * r + g * g + (b - 255) * (b - 255);
+  if (d0 <= d1 && d0 <= d2 && d0 <= d3) return 0;
+  if (d1 <= d2 && d1 <= d3) return 1;
+  if (d2 <= d3) return 2;
+  return 3;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Grid helpers — must match encoder exactly (§2.3)
+// ═══════════════════════════════════════════════════════════════════════════
+function isMarker(row, col, N) {
+  const ms = 3;
+  if (row < ms && col < ms) return 'TL';
+  if (row < ms && col >= N - ms) return 'TR';
+  if (row >= N - ms && col < ms) return 'BL';
+  if (row >= N - ms && col >= N - ms) return 'BR';
+  return null;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 4-Point Homography (DLT) + 3×3 Inverse (§6.6)
+// ═══════════════════════════════════════════════════════════════════════════
+function computeHomography(src, dst) {
+  const A = [], bv = [];
+  for (let i = 0; i < 4; i++) {
+    const [xs, ys] = src[i], [xd, yd] = dst[i];
+    A.push([xs, ys, 1, 0, 0, 0, -xd * xs, -xd * ys]);
+    bv.push(xd);
+    A.push([0, 0, 0, xs, ys, 1, -yd * xs, -yd * ys]);
+    bv.push(yd);
+  }
+  const h = gauss8(A, bv);
+  if (!h) return null;
+  return [h[0], h[1], h[2], h[3], h[4], h[5], h[6], h[7], 1];
+}
+
+function gauss8(A, b) {
+  const n = 8;
+  const M = A.map((row, i) => [...row, b[i]]);
+  for (let c = 0; c < n; c++) {
+    let piv = -1, mx = 0;
+    for (let r = c; r < n; r++) {
+      const v = Math.abs(M[r][c]);
+      if (v > mx) { mx = v; piv = r; }
+    }
+    if (piv < 0 || mx < 1e-12) return null;
+    [M[c], M[piv]] = [M[piv], M[c]];
+    const s = M[c][c];
+    for (let j = c; j <= n; j++) M[c][j] /= s;
+    for (let r = 0; r < n; r++) {
+      if (r === c) continue;
+      const f = M[r][c];
+      for (let j = c; j <= n; j++) M[r][j] -= f * M[c][j];
+    }
+  }
+  return M.map(row => row[n]);
+}
+
+function invertH(H) {
+  const [a, b, c, d, e, f, g, h, k] = H;
+  const det = a * (e * k - f * h) - b * (d * k - f * g) + c * (d * h - e * g);
+  if (Math.abs(det) < 1e-12) return null;
+  const id = 1 / det;
+  return [
+    (e*k - f*h)*id, -(b*k - c*h)*id,  (b*f - c*e)*id,
+   -(d*k - f*g)*id,  (a*k - c*g)*id, -(a*f - c*d)*id,
+    (d*h - e*g)*id, -(a*h - b*g)*id,  (a*e - b*d)*id
+  ];
+}
+
+function applyH(H, x, y) {
+  const w = H[6] * x + H[7] * y + H[8];
+  return [(H[0] * x + H[1] * y + H[2]) / w, (H[3] * x + H[4] * y + H[5]) / w];
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Corner Marker Detection — scan outer 30% only (§6.5)
+// ═══════════════════════════════════════════════════════════════════════════
+function detectMarkers(d, w, h) {
+  const acc = { TL: [0, 0, 0], TR: [0, 0, 0], BL: [0, 0, 0], BR: [0, 0, 0] };
+  const borderX = Math.max(1, Math.floor(w * 0.3));
+  const borderY = Math.max(1, Math.floor(h * 0.3));
+  const step = 2; // sample every 2nd pixel for speed
+
+  for (let y = 0; y < h; y += step) {
+    // Only scan if in outer 30%
+    if (y >= borderY && y < h - borderY) continue;
+    for (let x = 0; x < w; x += step) {
+      if (x >= borderX && x < w - borderX && y >= borderY && y < h - borderY) continue;
+      const i = (y * w + x) * 4;
+      const r = d[i], g = d[i + 1], b = d[i + 2];
+      const [hue, sat, val] = rgbToHsv(r, g, b);
+
+      let key = null;
+      if (hue >= 150 && hue <= 210 && sat > 30 && val > 40)       key = 'TL'; // Cyan
+      else if (hue >= 270 && hue <= 330 && sat > 30 && val > 40)  key = 'TR'; // Magenta
+      else if (hue >= 40 && hue <= 80 && sat > 30 && val > 40)    key = 'BL'; // Yellow
+      else if (sat < 20 && val > 70)                                key = 'BR'; // White
+
+      if (key) { acc[key][0] += x; acc[key][1] += y; acc[key][2]++; }
+    }
+  }
+
+  const result = {};
+  for (const [key, [sx, sy, cnt]] of Object.entries(acc)) {
+    if (cnt >= 10) result[key] = [sx / cnt, sy / cnt];
+  }
+  return result;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Sample a 3×3 patch around (cx,cy) from ImageData (§6.7)
+// ═══════════════════════════════════════════════════════════════════════════
+function samplePatch(d, w, h, cx, cy) {
+  let sr = 0, sg = 0, sb = 0, cnt = 0;
+  for (let dy = -1; dy <= 1; dy++) {
+    for (let dx = -1; dx <= 1; dx++) {
+      const px = Math.round(cx + dx), py = Math.round(cy + dy);
+      if (px >= 0 && px < w && py >= 0 && py < h) {
+        const i = (py * w + px) * 4;
+        sr += d[i]; sg += d[i + 1]; sb += d[i + 2]; cnt++;
+      }
+    }
+  }
+  return cnt > 0 ? [sr / cnt, sg / cnt, sb / cnt] : [0, 0, 0];
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Frame Decoding: unpack cells → RS decode → parse header
+// ═══════════════════════════════════════════════════════════════════════════
+function decodeFrame(cellValues, rsParams) {
+  // Pack cell values → bytes (4 cells → 1 byte, MSB first) §2.4
+  const nBytes = Math.floor(cellValues.length / 4);
+  const raw = new Uint8Array(nBytes);
+  for (let i = 0; i < nBytes; i++) {
+    raw[i] = ((cellValues[i * 4] & 3) << 6) |
+             ((cellValues[i * 4 + 1] & 3) << 4) |
+             ((cellValues[i * 4 + 2] & 3) << 2) |
+              (cellValues[i * 4 + 3] & 3);
+  }
+
+  // RS decode each block
+  const { nBlocks, totalPer, eccPer, dataPer } = rsParams;
+  let rsData = new Uint8Array(0);
+  for (let b = 0; b < nBlocks; b++) {
+    const block = raw.slice(b * totalPer, (b + 1) * totalPer);
+    const decoded = rsDecode(block, eccPer);
+    if (!decoded) return null;
+    const merged = new Uint8Array(rsData.length + decoded.length);
+    merged.set(rsData); merged.set(decoded, rsData.length);
+    rsData = merged;
+  }
+
+  if (rsData.length < 4) return null;
+  return {
+    type:  rsData[0],
+    index: (rsData[1] << 16) | (rsData[2] << 8) | rsData[3],
+    payload: rsData.slice(4),
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Parse Config Payload (§2.8)
+// ═══════════════════════════════════════════════════════════════════════════
+function parseConfig(p) {
+  if (p.length < 46) return null;
+  const dv = new DataView(p.buffer, p.byteOffset, p.byteLength);
+  const c = {
+    grid_size:   p[0],
+    num_colors:  p[1],
+    fps:         p[2],
+    ecc_percent: p[3],
+    file_size:   dv.getUint32(4, false),
+    K:           dv.getUint16(8, false),
+    block_size:  dv.getUint16(10, false),
+    sha256:      Array.from(p.slice(12, 44)).map(b => b.toString(16).padStart(2, '0')).join(''),
+    flags:       p[44],
+    filename_len: p[45],
+    filename:    '',
+  };
+  c.is_compressed = !!(c.flags & 0x01);
+  if (c.filename_len > 0 && p.length >= 46 + c.filename_len)
+    c.filename = new TextDecoder().decode(p.slice(46, 46 + c.filename_len));
+
+  // Derive RS parameters
+  const dataCells = c.grid_size * c.grid_size - 36;
+  const frameBytes = Math.floor(dataCells / 4);
+  const eccBytes = Math.max(2, Math.floor(frameBytes * c.ecc_percent / 100));
+  if (frameBytes <= 255) {
+    c.rs = { nBlocks: 1, totalPer: frameBytes, eccPer: eccBytes, dataPer: frameBytes - eccBytes };
+  } else {
+    const nb = Math.ceil(frameBytes / 255);
+    c.rs = { nBlocks: nb, totalPer: Math.floor(frameBytes / nb),
+             eccPer: Math.floor(eccBytes / nb),
+             dataPer: Math.floor(frameBytes / nb) - Math.floor(eccBytes / nb) };
+  }
+  return c;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SHA-256 via Web Crypto (§8.1)
+// ═══════════════════════════════════════════════════════════════════════════
+async function sha256hex(data) {
+  const h = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(h)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// State Machine (§7)
+// ═══════════════════════════════════════════════════════════════════════════
+const S = { SEARCHING: 0, DECODING: 1, VERIFYING: 2, COMPLETE: 3, RETRY: 4 };
+let state = S.SEARCHING;
+let cfg = null;
+let decoder = null;
+let downloadData = null;
+let downloadFilename = 'file';
+
+// Stats
+let rsOk = 0, rsFail = 0, t0 = 0;
+
+// DOM
+const vid     = document.getElementById('vid');
+const pcv     = document.getElementById('pcv');
+const pctx    = pcv.getContext('2d', { willReadFrequently: true });
+const ovl     = document.getElementById('overlay');
+const octx    = ovl.getContext('2d');
+const elStatus = document.getElementById('status');
+const elSub    = document.getElementById('sub');
+const elProg   = document.getElementById('prog');
+const elStats  = document.getElementById('stats');
+const elErr    = document.getElementById('err');
+const elFinfo  = document.getElementById('finfo');
+const btnDl    = document.getElementById('btn-dl');
+const btnResume = document.getElementById('btn-resume');
+const btnRestart = document.getElementById('btn-restart');
+
+function fmtB(b) {
+  if (b < 1024) return b + ' B';
+  if (b < 1048576) return (b / 1024).toFixed(1) + ' KB';
+  return (b / 1048576).toFixed(2) + ' MB';
+}
+
+function updateUI() {
+  if (state === S.SEARCHING) {
+    document.body.style.backgroundColor = '#222';
+    elStatus.textContent = 'SEARCHING';
+    elSub.textContent = 'Point camera at transmitter screen';
+    return;
+  }
+  if (state === S.DECODING && cfg && decoder) {
+    const pct = Math.round(decoder.progress() * 100);
+    elProg.style.width = pct + '%';
+    elStatus.textContent = 'RECEIVING ' + pct + '%';
+    elSub.textContent = cfg.filename + ' — ' + fmtB(cfg.file_size);
+    const elapsed = ((Date.now() - t0) / 1000).toFixed(0);
+    const quality = rsOk + rsFail > 0 ? Math.round(rsOk / (rsOk + rsFail) * 100) : 0;
+    elStats.textContent =
+      `Blocks: ${decoder.decodedCount}/${cfg.K} | OK: ${rsOk} | Fail: ${rsFail} | Signal: ${quality}% | ${elapsed}s`;
+    // Background: red→yellow→green transition
+    const g = Math.floor(pct * 1.5);
+    const r = Math.floor((100 - pct) * 0.6);
+    document.body.style.backgroundColor = `rgb(${r},${Math.floor(g * 0.35)},0)`;
+    return;
+  }
+  if (state === S.VERIFYING) {
+    elStatus.textContent = 'VERIFYING...';
+    elSub.textContent = 'Checking SHA-256';
+    return;
+  }
+  if (state === S.COMPLETE) {
+    document.body.style.backgroundColor = '#1a4a1a';
+    elProg.style.width = '100%';
+    elStatus.textContent = '\u2713 COMPLETE';
+    elSub.textContent = 'Transfer successful!';
+    elFinfo.textContent = cfg.filename + ' — ' + fmtB(downloadData.length);
+    btnDl.style.display = 'inline-block';
+    return;
+  }
+  if (state === S.RETRY) {
+    document.body.style.backgroundColor = '#3a1a1a';
+    elStatus.textContent = '\u26A0 VERIFY FAILED';
+    btnResume.style.display = 'inline-block';
+    btnRestart.style.display = 'inline-block';
+    return;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Main Per-Frame Processing (§6.10)
+// ═══════════════════════════════════════════════════════════════════════════
+const CELL_PX = 20;
+
+async function processFrame(imgData, w, h) {
+  // 1. Detect markers
+  const markers = detectMarkers(imgData.data, w, h);
+  if (!markers.TL || !markers.TR || !markers.BL || !markers.BR) {
+    if (state === S.SEARCHING) updateUI();
+    return;
+  }
+
+  const N = cfg ? cfg.grid_size : 24;
+  const SIZE = N * CELL_PX;
+
+  // 2. Homography: camera → canonical grid
+  const srcPts = [markers.TL, markers.TR, markers.BL, markers.BR];
+  const dstPts = [
+    [1.5 * CELL_PX, 1.5 * CELL_PX],
+    [(N - 1.5) * CELL_PX, 1.5 * CELL_PX],
+    [1.5 * CELL_PX, (N - 1.5) * CELL_PX],
+    [(N - 1.5) * CELL_PX, (N - 1.5) * CELL_PX],
+  ];
+
+  const H = computeHomography(srcPts, dstPts);
+  if (!H) return;
+  const Hi = invertH(H);
+  if (!Hi) return;
+
+  // 3. White balance from BR (WHITE) marker (§6.8)
+  const [wr, wg, wb] = samplePatch(imgData.data, w, h, markers.BR[0], markers.BR[1]);
+  const corrR = wr > 10 ? 255 / wr : 1;
+  const corrG = wg > 10 ? 255 / wg : 1;
+  const corrB = wb > 10 ? 255 / wb : 1;
+
+  // 4. Sample data cells
+  const cells = [];
+  for (let row = 0; row < N; row++) {
+    for (let col = 0; col < N; col++) {
+      if (isMarker(row, col, N)) continue;
+      const cx = (col + 0.5) * CELL_PX;
+      const cy = (row + 0.5) * CELL_PX;
+      const [camX, camY] = applyH(Hi, cx, cy);
+      let [r, g, b] = samplePatch(imgData.data, w, h, camX, camY);
+      r = Math.min(255, r * corrR);
+      g = Math.min(255, g * corrG);
+      b = Math.min(255, b * corrB);
+      cells.push(classifyColor(r, g, b));
+    }
+  }
+
+  // 5. Draw overlay dots for debug
+  octx.clearRect(0, 0, ovl.width, ovl.height);
+  const sx = ovl.width / w, sy = ovl.height / h;
+  const clr = { TL: 'cyan', TR: 'magenta', BL: 'yellow', BR: 'white' };
+  for (const [k, [px, py]] of Object.entries(markers)) {
+    octx.beginPath(); octx.arc(px * sx, py * sy, 5, 0, Math.PI * 2);
+    octx.fillStyle = clr[k]; octx.fill();
+  }
+
+  // === SEARCHING: need config first ===
+  if (state === S.SEARCHING) {
+    // Attempt decode with default RS params for N=24
+    const dataCells = N * N - 36;
+    const frameBytes = Math.floor(dataCells / 4);
+    const eccBytes = Math.max(2, Math.floor(frameBytes * 20 / 100));
+    const defaultRs = { nBlocks: 1, totalPer: frameBytes, eccPer: eccBytes, dataPer: frameBytes - eccBytes };
+    const result = decodeFrame(cells, defaultRs);
+    if (!result) { rsFail++; return; }
+    if (result.type === 0x00) {
+      const parsed = parseConfig(result.payload);
+      if (!parsed) return;
+      cfg = parsed;
+      decoder = new FountainDecoder(cfg.K, cfg.block_size);
+      decoder.setCdf(robustSolitonCdf(cfg.K));
+      t0 = Date.now();
+      downloadFilename = cfg.filename || 'file';
+      state = S.DECODING;
+      rsOk++;
+      updateUI();
+
+      // Lock camera (§6.4)
+      try {
+        const track = vid.srcObject.getVideoTracks()[0];
+        const caps = track.getCapabilities();
+        const adv = {};
+        if (caps.exposureMode) adv.exposureMode = 'manual';
+        if (caps.focusMode) adv.focusMode = 'manual';
+        if (caps.whiteBalanceMode) adv.whiteBalanceMode = 'manual';
+        if (Object.keys(adv).length) track.applyConstraints({ advanced: [adv] });
+      } catch (e) { /* some devices don't support manual — OK */ }
+    }
+    return;
+  }
+
+  // === DECODING ===
+  if (state !== S.DECODING) return;
+
+  const result = decodeFrame(cells, cfg.rs);
+  if (!result) { rsFail++; updateUI(); return; }
+  rsOk++;
+
+  if (result.type === 0x01) {
+    decoder.addSymbol(result.index, result.payload.slice(0, cfg.block_size));
+    updateUI();
+
+    if (decoder.isComplete()) {
+      state = S.VERIFYING;
+      updateUI();
+      await verifyAndFinish();
+    }
+  } else if (result.type === 0xFF && decoder.isComplete()) {
+    state = S.VERIFYING;
+    updateUI();
+    await verifyAndFinish();
+  }
+  // type 0x00 while decoding = another config frame, ignore
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Verification and Download (§8.1)
+// ═══════════════════════════════════════════════════════════════════════════
+async function verifyAndFinish() {
+  const raw = decoder.reconstruct();
+  if (!raw) { state = S.DECODING; updateUI(); return; }
+
+  const isCompressed = raw[0] === 0x01;
+  let payload = raw.slice(1);
+  let fileData;
+  if (isCompressed) {
+    try { fileData = pako.inflate(payload); }
+    catch (e) {
+      elErr.textContent = 'Decompression failed: ' + e.message;
+      state = S.RETRY; updateUI(); return;
+    }
+  } else {
+    fileData = payload.slice(0, cfg.file_size);
+  }
+  fileData = fileData.slice(0, cfg.file_size);
+
+  const hash = await sha256hex(fileData);
+  if (hash !== cfg.sha256) {
+    elErr.textContent = 'SHA-256 mismatch. Keep transmitter running and tap Resume.';
+    state = S.RETRY; updateUI(); return;
+  }
+
+  // Success!
+  downloadData = fileData;
+  state = S.COMPLETE;
+  updateUI();
+  elErr.textContent = '';
+
+  // Stop camera
+  if (vid.srcObject) vid.srcObject.getTracks().forEach(t => t.stop());
+  if (captureTimer) { clearInterval(captureTimer); captureTimer = null; }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Camera + Capture Loop
+// ═══════════════════════════════════════════════════════════════════════════
+let captureTimer = null;
+
+async function startCamera() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } },
+      audio: false
+    });
+    vid.srcObject = stream;
+    await vid.play();
+    ovl.width = vid.clientWidth || 640;
+    ovl.height = vid.clientHeight || 360;
+    state = S.SEARCHING;
+    updateUI();
+    captureTimer = setInterval(captureAndProcess, 66); // ~15fps processing
+  } catch (e) {
+    elErr.textContent = 'Camera error: ' + e.message + '. Ensure HTTPS is used.';
+  }
+}
+
+async function captureAndProcess() {
+  if (state === S.COMPLETE || state === S.VERIFYING) return;
+  const vw = vid.videoWidth, vh = vid.videoHeight;
+  if (!vw || !vh) return;
+
+  // Downscale for performance
+  const scale = Math.min(1, 640 / Math.max(vw, vh));
+  const pw = Math.round(vw * scale), ph = Math.round(vh * scale);
+  pcv.width = pw; pcv.height = ph;
+  pctx.drawImage(vid, 0, 0, pw, ph);
+  const imgData = pctx.getImageData(0, 0, pw, ph);
+  ovl.width = vid.clientWidth || pw;
+  ovl.height = vid.clientHeight || ph;
+
+  try { await processFrame(imgData, pw, ph); } catch (e) { /* per-frame errors OK */ }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Button Handlers
+// ═══════════════════════════════════════════════════════════════════════════
+document.getElementById('btn-start').onclick = async () => {
+  document.getElementById('btn-start').style.display = 'none';
+  await startCamera();
+};
+
+btnDl.onclick = () => {
+  if (!downloadData) return;
+  const blob = new Blob([downloadData]);
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = downloadFilename;
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+};
+
+btnResume.onclick = () => {
+  // Keep accumulated symbols, resume decoding
+  state = S.DECODING;
+  elErr.textContent = '';
+  btnResume.style.display = 'none';
+  btnRestart.style.display = 'none';
+  updateUI();
+  if (!captureTimer) captureTimer = setInterval(captureAndProcess, 66);
+};
+
+btnRestart.onclick = () => {
+  // Full reset
+  cfg = null; decoder = null;
+  rsOk = 0; rsFail = 0;
+  downloadData = null;
+  elErr.textContent = '';
+  elProg.style.width = '0%';
+  elStats.textContent = '';
+  elFinfo.textContent = '';
+  btnDl.style.display = 'none';
+  btnResume.style.display = 'none';
+  btnRestart.style.display = 'none';
+  state = S.SEARCHING;
+  updateUI();
+  if (!captureTimer) captureTimer = setInterval(captureAndProcess, 66);
+};
+</script>
+</body>
+</html>
