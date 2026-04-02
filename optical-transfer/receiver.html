@@ -103,11 +103,13 @@ function gfInv(a) { return gfExp[255 - gfLog[a]]; }
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Reed-Solomon Decoder — Berlekamp-Massey + Chien + Forney (§4.3)
+// Fixed: Xi power derivation and formal derivative evaluation
 // ═══════════════════════════════════════════════════════════════════════════
 function rsDecode(data, nsym) {
   const n = data.length, k = n - nsym;
 
-  // 1. Syndromes
+  // 1. Syndromes: S[j] = R(α^j) using Horner (big-endian polynomial)
+  //    R(x) = data[0]*x^{n-1} + data[1]*x^{n-2} + ... + data[n-1]
   const syn = new Array(nsym);
   let allZero = true;
   for (let j = 0; j < nsym; j++) {
@@ -118,60 +120,68 @@ function rsDecode(data, nsym) {
   }
   if (allZero) return data.slice(0, k);
 
-  // 2. Berlekamp-Massey
+  // 2. Berlekamp-Massey → error locator Λ(x)
   let C = [1], B = [1], L = 0, m = 1, b = 1;
   for (let step = 0; step < nsym; step++) {
     let d = syn[step];
     for (let i = 1; i <= L && i < C.length; i++)
       d ^= gfMul(C[i], syn[step - i]);
-
     if (d === 0) { m++; continue; }
-
     const T = C.slice();
     const coef = gfMul(d, gfInv(b));
     const padB = new Array(m).fill(0).concat(B);
     while (C.length < padB.length) C.push(0);
     for (let i = 0; i < padB.length; i++) C[i] ^= gfMul(coef, padB[i]);
-
     if (2 * L <= step) { L = step + 1 - L; B = T; b = d; m = 1; }
     else { m++; }
   }
 
-  // 3. Chien search — find error positions
-  const errPos = [];
+  // 3. Chien search: find roots of Λ(x)
+  //    We evaluate Λ(α^{255-i}) for i=0..n-1.
+  //    If zero, error at array pos = n-1-i, and the error locator X = α^i
+  //    (because array pos p corresponds to polynomial power n-1-p)
+  const errInfo = []; // {pos: array index, power: i such that X=α^i}
   for (let i = 0; i < n; i++) {
     let val = 0;
     for (let j = 0; j < C.length; j++)
       val ^= gfMul(C[j], gfExp[(j * (255 - i)) % 255]);
-    if (val === 0) errPos.push(n - 1 - i);
+    if (val === 0) errInfo.push({ pos: n - 1 - i, power: i });
   }
-  if (errPos.length !== L) return null;
+  if (errInfo.length !== L) return null;
 
-  // 4. Forney — error evaluator Ω = S·Λ mod x^nsym
+  // 4. Error evaluator Ω(x) = S(x)·Λ(x) mod x^nsym
   const omLen = Math.min(nsym, syn.length + C.length - 1);
   const omega = new Array(omLen).fill(0);
   for (let i = 0; i < nsym; i++)
     for (let j = 0; j < C.length && i + j < omLen; j++)
       omega[i + j] ^= gfMul(syn[i], C[j]);
 
-  // 5. Error magnitudes and correction
+  // 5. Forney: compute error magnitudes and correct
   const corrected = data.slice();
-  for (let idx = 0; idx < errPos.length; idx++) {
-    const pos = errPos[idx];
-    const Xi = gfExp[pos];
-    const XiInv = gfInv(Xi);
+  for (const { pos, power } of errInfo) {
+    // X = α^power is the error locator for this position
+    const Xi = gfExp[power];
+    const XiInv = gfExp[255 - power]; // α^{-power}
 
-    // Ω(Xi⁻¹) evaluated with Horner
+    // Ω(XiInv) via Horner
     let omVal = 0;
     for (let j = omega.length - 1; j >= 0; j--)
       omVal = gfMul(omVal, XiInv) ^ omega[j];
 
-    // Λ'(Xi⁻¹) — formal derivative (odd powers only)
+    // Λ'(XiInv) — formal derivative of Λ evaluated at XiInv
+    // Λ(x) = C[0] + C[1]*x + C[2]*x^2 + ...
+    // Λ'(x) = C[1] + C[3]*x^2 + C[5]*x^4 + ... (in GF(2^m), even multipliers vanish)
+    // So Λ'(XiInv) = C[1]*XiInv^0 + C[3]*XiInv^2 + C[5]*XiInv^4 + ...
     let ld = 0;
-    for (let j = 1; j < C.length; j += 2)
-      ld ^= gfMul(C[j], gfExp[(j * (255 - pos)) % 255]);
+    let xiPow = 1; // tracks XiInv^0, XiInv^2, XiInv^4, ...
+    const xiSq = gfMul(XiInv, XiInv);
+    for (let j = 1; j < C.length; j += 2) {
+      ld ^= gfMul(C[j], xiPow);
+      xiPow = gfMul(xiPow, xiSq);
+    }
     if (ld === 0) return null;
 
+    // Error magnitude: e = X * Ω(X⁻¹) / Λ'(X⁻¹)
     corrected[pos] ^= gfMul(gfMul(Xi, omVal), gfInv(ld));
   }
   return corrected.slice(0, k);
