@@ -462,24 +462,53 @@ function detectMarkers(d, w, h) {
     }
   }
 
-  // Compute centroid for each color, require minimum pixel count
+  // Compute centroid for TL, TR, BL (colored markers — reliable hues)
   const result = {};
-  for (const [key, pts] of Object.entries(buckets)) {
+  for (const key of ['TL', 'TR', 'BL']) {
+    const pts = buckets[key];
     if (pts.length < 5) continue;
     let sx = 0, sy = 0;
     for (const [px, py] of pts) { sx += px; sy += py; }
     result[key] = [sx / pts.length, sy / pts.length];
   }
 
-  // Sanity check: markers should form a roughly rectangular arrangement
-  // TL should be top-left of TR, BL should be below TL, etc.
-  if (result.TL && result.TR && result.BL && result.BR) {
-    const [tlx,tly] = result.TL, [trx,try_] = result.TR;
-    const [blx,bly] = result.BL, [brx,bry] = result.BR;
-    // TL should be left of TR, above BL
+  // For BR (white): if we have the other 3 corners, predict BR position
+  // and only accept white pixels near the prediction (within a radius)
+  if (result.TL && result.TR && result.BL) {
+    // Predict BR = TR + BL - TL (parallelogram completion)
+    const predX = result.TR[0] + result.BL[0] - result.TL[0];
+    const predY = result.TR[1] + result.BL[1] - result.TL[1];
+
+    // Search radius: roughly the distance between TL and TR / 3
+    const gridW = Math.hypot(result.TR[0] - result.TL[0], result.TR[1] - result.TL[1]);
+    const searchR = Math.max(gridW * 0.3, 30);
+
+    // Filter white pixels to those near the predicted position
+    const nearWhite = buckets.BR.filter(([px, py]) => {
+      const dx = px - predX, dy = py - predY;
+      return Math.sqrt(dx*dx + dy*dy) < searchR;
+    });
+
+    if (nearWhite.length >= 3) {
+      let sx = 0, sy = 0;
+      for (const [px, py] of nearWhite) { sx += px; sy += py; }
+      result.BR = [sx / nearWhite.length, sy / nearWhite.length];
+    } else {
+      // Fallback: use the predicted position directly if white pixels are sparse
+      // (the white marker might be washed out but we know where it should be)
+      result.BR = [predX, predY];
+    }
+  } else if (buckets.BR.length >= 5) {
+    // No 3-corner prediction available — use raw centroid as last resort
+    let sx = 0, sy = 0;
+    for (const [px, py] of buckets.BR) { sx += px; sy += py; }
+    result.BR = [sx / buckets.BR.length, sy / buckets.BR.length];
+  }
+
+  // Sanity check: TL should be left of TR, above BL
+  if (result.TL && result.TR && result.BL) {
+    const [tlx,tly] = result.TL, [trx,try_] = result.TR, [blx,bly] = result.BL;
     if (tlx > trx + 10 || tly > bly + 10) return {};
-    // BR should be right of BL, below TR
-    if (brx < blx - 10 || bry < try_ - 10) return {};
   }
 
   return result;
