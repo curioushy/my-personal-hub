@@ -510,7 +510,41 @@ function detectMarkers(d, w, h) {
 
   return result;
 }
-let debugStr = '';
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Temporal Smoothing — stabilize marker positions across frames
+// ═══════════════════════════════════════════════════════════════════════════
+const smoothedMarkers = { TL: null, TR: null, BL: null, BR: null };
+const SMOOTH_ALPHA = 0.35; // 0=frozen, 1=no smoothing
+
+function smoothMarkers(raw) {
+  const result = {};
+  for (const key of ['TL', 'TR', 'BL', 'BR']) {
+    if (!raw[key]) {
+      // If a corner disappears, keep the last known position briefly
+      if (smoothedMarkers[key]) result[key] = smoothedMarkers[key];
+      continue;
+    }
+    if (!smoothedMarkers[key]) {
+      // First detection — no smoothing
+      smoothedMarkers[key] = raw[key].slice();
+      result[key] = raw[key].slice();
+    } else {
+      // Exponential moving average
+      const [ox, oy] = smoothedMarkers[key];
+      const [nx, ny] = raw[key];
+      const sx = ox + SMOOTH_ALPHA * (nx - ox);
+      const sy = oy + SMOOTH_ALPHA * (ny - oy);
+      smoothedMarkers[key] = [sx, sy];
+      result[key] = [sx, sy];
+    }
+  }
+  return result;
+}
+
+function resetSmoothing() {
+  for (const key of ['TL','TR','BL','BR']) smoothedMarkers[key] = null;
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Sample a 3×3 patch around (cx,cy) from ImageData (§6.7)
@@ -728,14 +762,16 @@ function updateUI() {
 const CELL_PX = 20;
 
 async function processFrame(imgData, w, h) {
-  // 1. Detect markers
-  const markers = detectMarkers(imgData.data, w, h);
+  // 1. Detect markers (raw) then smooth
+  const rawMarkers = detectMarkers(imgData.data, w, h);
+  const markers = smoothMarkers(rawMarkers);
   const found = ['TL','TR','BL','BR'].filter(k => markers[k]);
 
   // Show debug info during search
   if (state === S.SEARCHING) {
+    const rawFound = ['TL','TR','BL','BR'].filter(k => rawMarkers[k]);
     const missing = ['TL','TR','BL','BR'].filter(k => !markers[k]);
-    elStats.textContent = `Corners: ${found.join(',')}${found.length<4 ? ' | Missing: '+missing.join(',') : ' | ALL FOUND'} | ${w}x${h}`;
+    elStats.textContent = `Corners: ${found.join(',')}${found.length<4 ? ' | Missing: '+missing.join(',') : ' | ALL FOUND'} | Raw: ${rawFound.length}/4 | ${w}x${h}`;
   }
 
   if (found.length < 4) {
@@ -1016,6 +1052,7 @@ btnResume.onclick = () => {
 function fullReset() {
   cfg = null; decoder = null;
   rsOk = 0; rsFail = 0; totalFramesCaptured = 0;
+  resetSmoothing();
   lastConfigHash = null;
   downloadData = null;
   elErr.textContent = '';
