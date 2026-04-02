@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Curious HY — Projects</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0a0a0b; --surface: #141416; --surface-hover: #1c1c1f;
+      --border: #27272a; --text: #fafafa; --text-muted: #a1a1aa;
+      --accent: #3b82f6; --accent-dim: rgba(59, 130, 246, 0.12);
+      --green: #22c55e; --yellow: #eab308; --purple: #a855f7; --radius: 12px;
+    }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', sans-serif; background: var(--bg); color: var(--text); line-height: 1.6; min-height: 100vh; }
+    .container { max-width: 720px; margin: 0 auto; padding: 80px 24px 60px; }
+    .header { margin-bottom: 56px; }
+    .header h1 { font-size: 28px; font-weight: 600; letter-spacing: -0.02em; margin-bottom: 8px; }
+    .header p { color: var(--text-muted); font-size: 16px; max-width: 480px; }
+    .header .links { display: flex; gap: 16px; margin-top: 16px; }
+    .header .links a { color: var(--text-muted); text-decoration: none; font-size: 14px; display: flex; align-items: center; gap: 6px; transition: color 0.15s; }
+    .header .links a:hover { color: var(--text); }
+    .section-label { font-size: 12px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); margin-bottom: 16px; }
+    .projects { display: flex; flex-direction: column; gap: 12px; margin-bottom: 48px; }
+    .project-card { display: flex; align-items: flex-start; gap: 16px; padding: 20px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); text-decoration: none; color: var(--text); transition: background 0.15s, border-color 0.15s; }
+    .project-card:hover { background: var(--surface-hover); border-color: #3f3f46; }
+    .project-icon { width: 40px; height: 40px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0; }
+    .project-info { flex: 1; min-width: 0; }
+    .project-info h3 { font-size: 15px; font-weight: 600; margin-bottom: 4px; display: flex; align-items: center; gap: 8px; }
+    .project-info p { font-size: 14px; color: var(--text-muted); }
+    .badge { font-size: 11px; font-weight: 500; padding: 2px 8px; border-radius: 999px; background: var(--accent-dim); color: var(--accent); }
+    .badge.live { background: rgba(34, 197, 94, 0.12); color: var(--green); }
+    .badge.wip { background: rgba(234, 179, 8, 0.12); color: var(--yellow); }
+    .arrow { color: var(--text-muted); font-size: 18px; flex-shrink: 0; align-self: center; transition: transform 0.15s; }
+    .project-card:hover .arrow { transform: translateX(3px); }
+    .project-card.coming-soon { opacity: 0.5; pointer-events: none; border-style: dashed; }
+    .footer { padding-top: 24px; border-top: 1px solid var(--border); color: var(--text-muted); font-size: 13px; display: flex; justify-content: space-between; align-items: center; }
+    .footer a { color: var(--text-muted); text-decoration: none; transition: color 0.15s; }
+    .footer a:hover { color: var(--text); }
+    @media (max-width: 480px) { .container { padding: 48px 16px 40px; } .header h1 { font-size: 24px; } .project-card { padding: 16px; } }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header class="header">
+      <h1>Curious HY</h1>
+      <p>AI-driven experiments, side projects, and things I'm building.</p>
+      <div class="links">
+        <a href="https://github.com/curioushy" target="_blank" rel="noopener">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23A11.509 11.509 0 0112 5.803c1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576C20.566 21.797 24 17.3 24 12c0-6.627-5.373-12-12-12z"/></svg>
+          GitHub
+        </a>
+      </div>
+    </header>
+    <div class="section-label">Projects</div>
+    <div class="projects">
+      <a href="#" class="project-card">
+        <div class="project-icon" style="background: rgba(59,130,246,0.12);"><span>🧪</span></div>
+        <div class="project-info">
+          <h3>test-auto-setup <span class="badge live">Live</span></h3>
+          <p>First automated repo — testing the GitHub + Vercel pipeline.</p>
+        </div>
+        <span class="arrow">→</span>
+      </a>
+      <div class="project-card coming-soon">
+        <div class="project-icon" style="background: rgba(161,161,170,0.08);"><span>+</span></div>
+        <div class="project-info">
+          <h3>Next project</h3>
+          <p>Something new is coming...</p>
+        </div>
+      </div>
+    </div>
+    <footer class="footer">
+      <span>© 2026 Curious HY</span>
+      <a href="https://github.com/curioushy/my-personal-hub" target="_blank" rel="noopener">Source</a>
+    </footer>
+  </div>
+</body>
+</html>
