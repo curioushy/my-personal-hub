@@ -36,6 +36,16 @@ video{width:100%;border-radius:6px;display:block;background:#000}
 #btn-dl{display:none;background:#2d9e5a}
 #btn-resume{display:none;background:#cc8833}
 #btn-restart{display:none;background:#c44}
+#btn-reset{display:none;background:#666;padding:10px 20px;font-size:.85em}
+#detail-box{
+  width:min(420px,92vw);background:rgba(255,255,255,.04);border-radius:6px;
+  padding:10px 12px;margin:8px 0;font-size:.72em;color:#999;line-height:1.6;
+  display:none;
+}
+#detail-box .row{display:flex;justify-content:space-between}
+#detail-box .label{color:#777}
+#detail-box .val{color:#ccc;font-weight:bold}
+#detail-box .warn{color:#f96}
 #finfo{font-size:.78em;color:#aaa;text-align:center;margin-top:4px}
 #err{color:#f66;font-size:.82em;text-align:center;margin-top:6px;min-height:1em}
 </style>
@@ -55,6 +65,8 @@ video{width:100%;border-radius:6px;display:block;background:#000}
 <button class="btn" id="btn-dl">&#11015; Download File</button>
 <button class="btn" id="btn-resume">&#9654; Resume</button>
 <button class="btn" id="btn-restart">&#8634; Restart</button>
+<button class="btn" id="btn-reset">&#8634; Reset</button>
+<div id="detail-box"></div>
 <div id="finfo"></div>
 <div id="err"></div>
 
@@ -579,6 +591,8 @@ let downloadFilename = 'file';
 
 // Stats
 let rsOk = 0, rsFail = 0, t0 = 0;
+let totalFramesCaptured = 0;
+let lastConfigHash = null; // track transmitter file changes
 
 // DOM
 const vid     = document.getElementById('vid');
@@ -592,9 +606,11 @@ const elProg   = document.getElementById('prog');
 const elStats  = document.getElementById('stats');
 const elErr    = document.getElementById('err');
 const elFinfo  = document.getElementById('finfo');
+const elDetail = document.getElementById('detail-box');
 const btnDl    = document.getElementById('btn-dl');
 const btnResume = document.getElementById('btn-resume');
 const btnRestart = document.getElementById('btn-restart');
+const btnReset = document.getElementById('btn-reset');
 
 function fmtB(b) {
   if (b < 1024) return b + ' B';
@@ -603,10 +619,14 @@ function fmtB(b) {
 }
 
 function updateUI() {
+  // Reset button visible whenever camera is active
+  btnReset.style.display = (state !== S.SEARCHING || rsOk + rsFail > 0) ? 'inline-block' : 'none';
+
   if (state === S.SEARCHING) {
     document.body.style.backgroundColor = '#222';
     elStatus.textContent = 'SEARCHING';
     elSub.textContent = 'Point camera at transmitter screen';
+    elDetail.style.display = 'none';
     return;
   }
   if (state === S.DECODING && cfg && decoder) {
@@ -614,14 +634,35 @@ function updateUI() {
     elProg.style.width = pct + '%';
     elStatus.textContent = 'RECEIVING ' + pct + '%';
     elSub.textContent = cfg.filename + ' — ' + fmtB(cfg.file_size);
-    const elapsed = ((Date.now() - t0) / 1000).toFixed(0);
+
+    const elapsed = (Date.now() - t0) / 1000;
     const quality = rsOk + rsFail > 0 ? Math.round(rsOk / (rsOk + rsFail) * 100) : 0;
+    const uniqueSymbols = decoder.seenIdx.size;
+    const bytesDecoded = decoder.decodedCount * cfg.block_size;
+    const totalBytes = cfg.K * cfg.block_size;
+    const dataRate = elapsed > 0 ? bytesDecoded / elapsed : 0;
+    const remaining = dataRate > 0 ? Math.max(0, (totalBytes - bytesDecoded) / dataRate) : 0;
+
     elStats.textContent =
-      `Blocks: ${decoder.decodedCount}/${cfg.K} | OK: ${rsOk} | Fail: ${rsFail} | Signal: ${quality}% | ${elapsed}s`;
+      `Blocks: ${decoder.decodedCount}/${cfg.K} (${pct}%) | Signal: ${quality}% | ${elapsed.toFixed(0)}s`;
+
+    // Detailed stats box
+    elDetail.style.display = 'block';
+    elDetail.innerHTML =
+      `<div class="row"><span class="label">File</span><span class="val">${cfg.filename}</span></div>` +
+      `<div class="row"><span class="label">Original size</span><span class="val">${fmtB(cfg.file_size)}</span></div>` +
+      `<div class="row"><span class="label">Data received</span><span class="val">${fmtB(bytesDecoded)} / ${fmtB(totalBytes)}</span></div>` +
+      `<div class="row"><span class="label">Unique symbols</span><span class="val">${uniqueSymbols} / ${cfg.K} needed</span></div>` +
+      `<div class="row"><span class="label">Frames captured</span><span class="val">${totalFramesCaptured} (OK: ${rsOk}, Fail: ${rsFail})</span></div>` +
+      `<div class="row"><span class="label">Data rate</span><span class="val">${fmtB(Math.round(dataRate))}/s</span></div>` +
+      `<div class="row"><span class="label">Est. remaining</span><span class="val">${remaining < 999 ? remaining.toFixed(0) + 's' : '...'}</span></div>` +
+      `<div class="row"><span class="label">SHA-256</span><span class="val" style="font-size:.85em">${cfg.sha256.slice(0,16)}...</span></div>`;
+
     // Background: red→yellow→green transition
-    const g = Math.floor(pct * 1.5);
-    const r = Math.floor((100 - pct) * 0.6);
-    document.body.style.backgroundColor = `rgb(${r},${Math.floor(g * 0.35)},0)`;
+    const gv = Math.floor(pct * 1.5);
+    const rv = Math.floor((100 - pct) * 0.6);
+    document.body.style.backgroundColor = `rgb(${rv},${Math.floor(gv * 0.35)},0)`;
+    btnReset.style.display = 'inline-block';
     return;
   }
   if (state === S.VERIFYING) {
@@ -636,6 +677,7 @@ function updateUI() {
     elSub.textContent = 'Transfer successful!';
     elFinfo.textContent = cfg.filename + ' — ' + fmtB(downloadData.length);
     btnDl.style.display = 'inline-block';
+    btnReset.style.display = 'inline-block';
     return;
   }
   if (state === S.RETRY) {
@@ -643,6 +685,7 @@ function updateUI() {
     elStatus.textContent = '\u26A0 VERIFY FAILED';
     btnResume.style.display = 'inline-block';
     btnRestart.style.display = 'inline-block';
+    btnReset.style.display = 'inline-block';
     return;
   }
 }
@@ -771,8 +814,16 @@ async function processFrame(imgData, w, h) {
   if (!result) { rsFail++; updateUI(); return; }
   rsOk++;
 
-  if (result.type === 0x01) {
+  if (result.type === 0x00) {
+    // Config frame during decoding — check if transmitter file changed
+    const newCfg = parseConfig(result.payload);
+    if (newCfg && newCfg.sha256 !== cfg.sha256) {
+      elErr.textContent = '\u26A0 Transmitter file changed! Tap Reset to start over.';
+      elDetail.innerHTML += '<div class="row"><span class="warn">File on transmitter changed — data is stale</span></div>';
+    }
+  } else if (result.type === 0x01) {
     decoder.addSymbol(result.index, result.payload.slice(0, cfg.block_size));
+    totalFramesCaptured++;
     updateUI();
 
     if (decoder.isComplete()) {
@@ -785,7 +836,6 @@ async function processFrame(imgData, w, h) {
     updateUI();
     await verifyAndFinish();
   }
-  // type 0x00 while decoding = another config frame, ignore
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -842,6 +892,7 @@ async function startCamera() {
     ovl.width = vid.clientWidth || 640;
     ovl.height = vid.clientHeight || 360;
     state = S.SEARCHING;
+    btnReset.style.display = 'inline-block';
     updateUI();
     captureTimer = setInterval(captureAndProcess, 66); // ~15fps processing
   } catch (e) {
@@ -895,22 +946,34 @@ btnResume.onclick = () => {
   if (!captureTimer) captureTimer = setInterval(captureAndProcess, 66);
 };
 
-btnRestart.onclick = () => {
-  // Full reset
+function fullReset() {
   cfg = null; decoder = null;
-  rsOk = 0; rsFail = 0;
+  rsOk = 0; rsFail = 0; totalFramesCaptured = 0;
+  lastConfigHash = null;
   downloadData = null;
   elErr.textContent = '';
   elProg.style.width = '0%';
   elStats.textContent = '';
   elFinfo.textContent = '';
+  elDetail.style.display = 'none';
+  elDetail.innerHTML = '';
   btnDl.style.display = 'none';
   btnResume.style.display = 'none';
   btnRestart.style.display = 'none';
+  btnReset.style.display = 'none';
+  document.body.style.backgroundColor = '#222';
   state = S.SEARCHING;
   updateUI();
-  if (!captureTimer) captureTimer = setInterval(captureAndProcess, 66);
-};
+  // Restart camera if it was stopped
+  if (!vid.srcObject || vid.srcObject.getTracks().every(t => t.readyState === 'ended')) {
+    startCamera();
+  } else if (!captureTimer) {
+    captureTimer = setInterval(captureAndProcess, 66);
+  }
+}
+
+btnRestart.onclick = fullReset;
+btnReset.onclick = fullReset;
 </script>
 </body>
 </html>
