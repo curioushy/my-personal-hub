@@ -4,46 +4,58 @@ Transfer files from PC to iPhone using animated color grids displayed on screen 
 
 ## How It Works
 
-1. **Encoder** (PC) reads a file, compresses it, applies LT fountain codes + Reed-Solomon error correction, and outputs a standalone HTML transmitter
-2. **Transmitter** (PC browser) displays animated color-grid frames on a canvas
-3. **Receiver** (iPhone Safari) captures frames via camera, decodes them, verifies SHA-256, and offers the file for download
+1. **Transmitter** (PC browser) — drop a file, adjust settings, hit Start. Frames are generated on the fly in JavaScript.
+2. **Receiver** (iPhone Safari) — captures frames via camera, decodes them, verifies SHA-256, and offers the file for download.
 
 ## Quick Start
 
-### One-time setup: Receiver
-The receiver needs HTTPS for camera access. Open this URL on your iPhone and bookmark it:
+### Transmitter (PC)
+Open this in your PC browser and drop a file:
+
+**https://curioushy.github.io/my-personal-hub/optical-transfer/transmitter.html**
+
+Or open `transmitter.html` locally via `file://` — no server needed.
+
+### Receiver (iPhone)
+Open this on your iPhone Safari and bookmark it:
 
 **https://curioushy.github.io/my-personal-hub/optical-transfer/receiver.html**
 
-### Each transfer: Encoder + Transmitter
+### Transfer
+1. Open the transmitter on your PC, drop a file, adjust settings
+2. Open the receiver on your iPhone, tap Start Camera
+3. Point the iPhone at the PC screen, hit Start on the transmitter
+4. Wait for the progress bar to fill — green = done
+5. Tap Download on the iPhone
+
+## Alternative: Python Encoder
+
+For batch/CLI use, `encoder.py` is also available. It pre-generates all frames into a standalone HTML file:
 
 ```bash
-pip install reedsolo    # one-time dependency
-
-python encoder.py myfile.pdf                    # default settings
-python encoder.py photo.jpg --grid 32 --fps 20  # larger grid, faster
+pip install reedsolo
+python encoder.py myfile.pdf --grid 32 --fps 20
+open transmitter.html
 ```
 
-This outputs `transmitter.html`. Open it in your browser, point the iPhone at the screen, and press Start.
+## Settings
 
-## Encoder Options
-
-| Option | Default | Description |
+| Setting | Default | Description |
 |---|---|---|
-| `--grid N` | 24 | Grid size N×N (16-48) |
-| `--fps N` | 15 | Frames per second (1-30) |
-| `--ecc N` | 20 | Reed-Solomon ECC % (5-50) |
-| `--overhead F` | 1.5 | Fountain code overhead (1.1-3.0) |
-| `--output PATH` | transmitter.html | Output filename |
+| Grid size | 24x24 | Larger = more data/frame, harder at distance |
+| FPS | 15 | Higher = faster, more missed frames |
+| ECC % | 20 | Higher = more error correction, less payload |
+| Overhead | 1.5x | More fountain symbols = higher decode probability |
+| Display | 720px | Larger = easier for camera |
 
 ## Performance
 
 | Grid | FPS | ~100KB transfer time |
 |---|---|---|
-| 24×24 | 15 | ~70s |
-| 32×32 | 15 | ~33s |
-| 24×24 | 30 | ~35s |
-| 32×32 | 30 | ~17s |
+| 24x24 | 15 | ~70s |
+| 32x32 | 15 | ~33s |
+| 24x24 | 30 | ~35s |
+| 32x32 | 30 | ~17s |
 
 ## Technical Details
 
@@ -51,3 +63,4 @@ This outputs `transmitter.html`. Open it in your browser, point the iPhone at th
 - **Error correction:** Reed-Solomon per frame + LT fountain codes across frames
 - **Detection:** Colored corner markers (Cyan/Magenta/Yellow/White) for homography
 - **Verification:** SHA-256 end-to-end checksum
+- **Zero dependencies:** Transmitter and receiver run entirely in-browser (pako for zlib only)
