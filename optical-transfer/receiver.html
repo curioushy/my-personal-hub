@@ -48,6 +48,8 @@ video{width:100%;border-radius:6px;display:block;background:#000}
 #detail-box .warn{color:#f96}
 #finfo{font-size:.78em;color:#aaa;text-align:center;margin-top:4px}
 #err{color:#f66;font-size:.82em;text-align:center;margin-top:6px;min-height:1em}
+#debug-canvas{border:1px solid #444;border-radius:4px;margin:8px 0;display:none;image-rendering:pixelated}
+#debug-info{font-size:.68em;color:#666;text-align:center;margin:2px 0;min-height:1em}
 </style>
 </head>
 <body>
@@ -66,6 +68,8 @@ video{width:100%;border-radius:6px;display:block;background:#000}
 <button class="btn" id="btn-resume">&#9654; Resume</button>
 <button class="btn" id="btn-restart">&#8634; Restart</button>
 <button class="btn" id="btn-reset">&#8634; Reset</button>
+<canvas id="debug-canvas" width="120" height="120"></canvas>
+<div id="debug-info"></div>
 <div id="detail-box"></div>
 <div id="finfo"></div>
 <div id="err"></div>
@@ -678,6 +682,8 @@ function updateUI() {
     elFinfo.textContent = cfg.filename + ' — ' + fmtB(downloadData.length);
     btnDl.style.display = 'inline-block';
     btnReset.style.display = 'inline-block';
+    document.getElementById('debug-canvas').style.display = 'none';
+    document.getElementById('debug-info').textContent = '';
     return;
   }
   if (state === S.RETRY) {
@@ -772,25 +778,58 @@ async function processFrame(imgData, w, h) {
     octx.strokeStyle = 'rgba(100,255,100,0.5)'; octx.lineWidth = 2; octx.stroke();
   }
 
+  // === Draw debug grid — show what receiver "sees" ===
+  const dbgCanvas = document.getElementById('debug-canvas');
+  const dbgInfo = document.getElementById('debug-info');
+  if (state === S.SEARCHING || state === S.DECODING) {
+    dbgCanvas.style.display = 'block';
+    const dbgSize = Math.min(200, Math.floor(window.innerWidth * 0.4));
+    const dbgCellPx = Math.max(1, Math.floor(dbgSize / N));
+    dbgCanvas.width = dbgCellPx * N; dbgCanvas.height = dbgCellPx * N;
+    const dctx = dbgCanvas.getContext('2d');
+    const PALETTE = [[0,0,0],[255,0,0],[0,255,0],[0,0,255]];
+    const MK = {TL:[0,255,255],TR:[255,0,255],BL:[255,255,0],BR:[255,255,255]};
+    let ci = 0;
+    for (let row = 0; row < N; row++) {
+      for (let col = 0; col < N; col++) {
+        const m = isMarker(row, col, N);
+        const [cr,cg,cb] = m ? MK[m] : PALETTE[ci < cells.length ? cells[ci] : 0];
+        if (!m) ci++;
+        dctx.fillStyle = `rgb(${cr},${cg},${cb})`;
+        dctx.fillRect(col * dbgCellPx, row * dbgCellPx, dbgCellPx, dbgCellPx);
+      }
+    }
+  }
+
   // === SEARCHING: need config first ===
   if (state === S.SEARCHING) {
-    // Attempt decode with default RS params for N=24
+    // Try decode with default RS params for N=24, 20% ECC
     const dataCells = N * N - 36;
     const frameBytes = Math.floor(dataCells / 4);
     const eccBytes = Math.max(2, Math.floor(frameBytes * 20 / 100));
     const defaultRs = { nBlocks: 1, totalPer: frameBytes, eccPer: eccBytes, dataPer: frameBytes - eccBytes };
     const result = decodeFrame(cells, defaultRs);
-    if (!result) { rsFail++; return; }
+    totalFramesCaptured++;
+    if (!result) {
+      rsFail++;
+      dbgInfo.textContent = `Config decode: ${rsFail} failed, ${rsOk} OK | RS can fix ${Math.floor(eccBytes/2)} byte errors of ${frameBytes}`;
+      return;
+    }
+    rsOk++;
     if (result.type === 0x00) {
       const parsed = parseConfig(result.payload);
-      if (!parsed) return;
+      if (!parsed) {
+        dbgInfo.textContent = 'Config frame decoded but payload parse failed';
+        return;
+      }
       cfg = parsed;
+      lastConfigHash = cfg.sha256;
       decoder = new FountainDecoder(cfg.K, cfg.block_size);
       decoder.setCdf(robustSolitonCdf(cfg.K));
       t0 = Date.now();
       downloadFilename = cfg.filename || 'file';
       state = S.DECODING;
-      rsOk++;
+      dbgInfo.textContent = 'Config OK! Decoding...';
       updateUI();
 
       // Lock camera (§6.4)
@@ -803,6 +842,8 @@ async function processFrame(imgData, w, h) {
         if (caps.whiteBalanceMode) adv.whiteBalanceMode = 'manual';
         if (Object.keys(adv).length) track.applyConstraints({ advanced: [adv] });
       } catch (e) { /* some devices don't support manual — OK */ }
+    } else {
+      dbgInfo.textContent = `RS OK but frame type=0x${result.type.toString(16)} (want 0x00 config)`;
     }
     return;
   }
@@ -961,6 +1002,8 @@ function fullReset() {
   btnResume.style.display = 'none';
   btnRestart.style.display = 'none';
   btnReset.style.display = 'none';
+  document.getElementById('debug-canvas').style.display = 'none';
+  document.getElementById('debug-info').textContent = '';
   document.body.style.backgroundColor = '#222';
   state = S.SEARCHING;
   updateUI();
