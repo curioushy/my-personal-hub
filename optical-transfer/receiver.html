@@ -457,15 +457,24 @@ function detectMarkers(d, w, h) {
       const sat = mx > 0 ? (mx - mn) / mx : 0;
 
       let key = null;
-      if (sat > 0.25) {
-        // Saturated color — check hue via RGB dominance
-        if (g > 100 && b > 100 && r < g * 0.65)       key = 'TL'; // Cyan (high G+B, low R)
-        else if (r > 100 && b > 100 && g < r * 0.65)   key = 'TR'; // Magenta (high R+B, low G)
-        else if (r > 100 && g > 100 && b < r * 0.65)   key = 'BL'; // Yellow (high R+G, low B)
-      } else if (mx > 120) {
-        // Low saturation + bright = white candidate
-        // Through camera, white can look dim or tinted
-        if (r > 100 && g > 100 && b > 100) key = 'BR';
+      // Marker detection: markers are 2-channel colors (CMY+W).
+      // Data cells are 1-channel (R/G/B) or black. The key distinction:
+      // markers have TWO strong channels, data cells have at most ONE.
+      // Use strict thresholds to avoid matching data cells.
+      const lo = Math.min(r, g, b);
+      if (sat > 0.3) {
+        // Cyan (TL): G and B both strong, R weak
+        if (g > 130 && b > 130 && r < lo + 80 && r < Math.min(g,b) * 0.45)
+          key = 'TL';
+        // Magenta (TR): R and B both strong, G weak
+        else if (r > 130 && b > 130 && g < lo + 80 && g < Math.min(r,b) * 0.45)
+          key = 'TR';
+        // Yellow (BL): R and G both strong, B weak
+        else if (r > 130 && g > 130 && b < lo + 80 && b < Math.min(r,g) * 0.45)
+          key = 'BL';
+      } else if (sat < 0.2 && mn > 130) {
+        // White (BR): all channels strong, low saturation
+        key = 'BR';
       }
 
       if (key) buckets[key].push([x, y]);
@@ -531,7 +540,7 @@ function smoothMarkers(raw) {
   const result = {};
   for (const key of ['TL', 'TR', 'BL', 'BR']) {
     if (!raw[key]) {
-      // If a corner disappears, keep the last known position briefly
+      // If a corner disappears, keep the last known position for a few frames
       if (smoothedMarkers[key]) result[key] = smoothedMarkers[key];
       continue;
     }
@@ -540,13 +549,21 @@ function smoothMarkers(raw) {
       smoothedMarkers[key] = raw[key].slice();
       result[key] = raw[key].slice();
     } else {
-      // Exponential moving average
       const [ox, oy] = smoothedMarkers[key];
       const [nx, ny] = raw[key];
-      const sx = ox + SMOOTH_ALPHA * (nx - ox);
-      const sy = oy + SMOOTH_ALPHA * (ny - oy);
-      smoothedMarkers[key] = [sx, sy];
-      result[key] = [sx, sy];
+      const jump = Math.hypot(nx - ox, ny - oy);
+
+      // If the new detection jumps more than 50px, it's probably a
+      // false positive — ignore it and keep the old position
+      if (jump > 50) {
+        result[key] = smoothedMarkers[key];
+      } else {
+        // Exponential moving average
+        const sx = ox + SMOOTH_ALPHA * (nx - ox);
+        const sy = oy + SMOOTH_ALPHA * (ny - oy);
+        smoothedMarkers[key] = [sx, sy];
+        result[key] = [sx, sy];
+      }
     }
   }
   return result;
