@@ -28,12 +28,16 @@
     .project-info { flex: 1; min-width: 0; }
     .project-info h3 { font-size: 15px; font-weight: 600; margin-bottom: 4px; display: flex; align-items: center; gap: 8px; }
     .project-info p { font-size: 14px; color: var(--text-muted); }
+    .project-meta { display: flex; gap: 12px; margin-top: 6px; font-size: 12px; color: var(--text-muted); }
+    .project-meta span { display: flex; align-items: center; gap: 4px; }
     .badge { font-size: 11px; font-weight: 500; padding: 2px 8px; border-radius: 999px; background: var(--accent-dim); color: var(--accent); }
     .badge.live { background: rgba(34, 197, 94, 0.12); color: var(--green); }
     .badge.wip { background: rgba(234, 179, 8, 0.12); color: var(--yellow); }
+    .badge.auto { background: rgba(168, 85, 247, 0.12); color: var(--purple); }
     .arrow { color: var(--text-muted); font-size: 18px; flex-shrink: 0; align-self: center; transition: transform 0.15s; }
     .project-card:hover .arrow { transform: translateX(3px); }
     .project-card.coming-soon { opacity: 0.5; pointer-events: none; border-style: dashed; }
+    .loading-text { color: var(--text-muted); font-size: 13px; padding: 12px 0; }
     .footer { padding-top: 24px; border-top: 1px solid var(--border); color: var(--text-muted); font-size: 13px; display: flex; justify-content: space-between; align-items: center; }
     .footer a { color: var(--text-muted); text-decoration: none; transition: color 0.15s; }
     .footer a:hover { color: var(--text); }
@@ -52,8 +56,10 @@
         </a>
       </div>
     </header>
-    <div class="section-label">Projects</div>
-    <div class="projects">
+
+    <!-- FEATURED PROJECTS — manually curated -->
+    <div class="section-label">Featured</div>
+    <div class="projects" id="featured">
       <a href="#" class="project-card">
         <div class="project-icon" style="background: rgba(59,130,246,0.12);"><span>🧪</span></div>
         <div class="project-info">
@@ -62,18 +68,83 @@
         </div>
         <span class="arrow">→</span>
       </a>
-      <div class="project-card coming-soon">
-        <div class="project-icon" style="background: rgba(161,161,170,0.08);"><span>+</span></div>
-        <div class="project-info">
-          <h3>Next project</h3>
-          <p>Something new is coming...</p>
-        </div>
-      </div>
     </div>
+
+    <!-- AUTO-DISCOVERED — populated from GitHub API at load time -->
+    <div class="section-label">All Repos <span style="text-transform: none; opacity: 0.6;">(auto-discovered from GitHub)</span></div>
+    <div class="projects" id="discovered">
+      <div class="loading-text" id="loading">Loading repos...</div>
+    </div>
+
     <footer class="footer">
       <span>© 2026 Curious HY</span>
       <a href="https://github.com/curioushy/my-personal-hub" target="_blank" rel="noopener">Source</a>
     </footer>
   </div>
+
+  <script>
+    const GITHUB_USER = 'curioushy';
+    const HIDDEN_REPOS = ['my-personal-hub'];
+    const VERCEL_OVERRIDES = {};
+    const ICON_COLORS = [
+      'rgba(59,130,246,0.12)', 'rgba(168,85,247,0.12)', 'rgba(34,197,94,0.12)',
+      'rgba(234,179,8,0.12)', 'rgba(239,68,68,0.12)', 'rgba(6,182,212,0.12)',
+    ];
+    const LANG_ICONS = {
+      'JavaScript': '⚡', 'TypeScript': '🔷', 'Python': '🐍',
+      'HTML': '🌐', 'CSS': '🎨', 'Go': '🔵', 'Rust': '🦀',
+      'Java': '☕', 'Swift': '🍎', 'Ruby': '💎',
+      'Shell': '🖥️', 'null': '📦',
+    };
+
+    async function discoverRepos() {
+      const container = document.getElementById('discovered');
+      const loading = document.getElementById('loading');
+      try {
+        const resp = await fetch(
+          `https://api.github.com/users/${GITHUB_USER}/repos?type=public&sort=updated&per_page=100`
+        );
+        if (!resp.ok) throw new Error(`GitHub API: ${resp.status}`);
+        const repos = await resp.json();
+        const visible = repos.filter(r => !HIDDEN_REPOS.includes(r.name) && !r.fork);
+        loading.remove();
+        if (visible.length === 0) {
+          container.innerHTML = '<div class="loading-text">No public repos yet. Make a repo public to see it here.</div>';
+          return;
+        }
+        visible.forEach((repo, i) => {
+          const vercelUrl = VERCEL_OVERRIDES[repo.name] || `https://${repo.name}.vercel.app`;
+          const icon = LANG_ICONS[String(repo.language)] || '📦';
+          const color = ICON_COLORS[i % ICON_COLORS.length];
+          const updated = new Date(repo.updated_at).toLocaleDateString('en-GB', {
+            day: 'numeric', month: 'short', year: 'numeric'
+          });
+          const card = document.createElement('a');
+          card.href = repo.homepage || vercelUrl;
+          card.target = '_blank';
+          card.rel = 'noopener';
+          card.className = 'project-card';
+          card.innerHTML = `
+            <div class="project-icon" style="background: ${color};"><span>${icon}</span></div>
+            <div class="project-info">
+              <h3>${repo.name} <span class="badge auto">Public</span></h3>
+              <p>${repo.description || 'No description'}</p>
+              <div class="project-meta">
+                ${repo.language ? `<span>${repo.language}</span>` : ''}
+                <span>Updated ${updated}</span>
+                ${repo.stargazers_count > 0 ? `<span>&#9733; ${repo.stargazers_count}</span>` : ''}
+              </div>
+            </div>
+            <span class="arrow">→</span>
+          `;
+          container.appendChild(card);
+        });
+      } catch (err) {
+        loading.textContent = 'Could not load repos. Check back later.';
+        console.error('Repo discovery failed:', err);
+      }
+    }
+    discoverRepos();
+  </script>
 </body>
 </html>
