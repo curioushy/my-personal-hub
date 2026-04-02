@@ -411,39 +411,64 @@ function applyH(H, x, y) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Corner Marker Detection — scan outer 30% only (§6.5)
+// Corner Marker Detection — full frame scan (§6.5)
 // ═══════════════════════════════════════════════════════════════════════════
 function detectMarkers(d, w, h) {
-  const acc = { TL: [0, 0, 0], TR: [0, 0, 0], BL: [0, 0, 0], BR: [0, 0, 0] };
-  const borderX = Math.max(1, Math.floor(w * 0.3));
-  const borderY = Math.max(1, Math.floor(h * 0.3));
-  const step = 2; // sample every 2nd pixel for speed
+  // Collect matching pixel positions per color, then find the largest cluster
+  const buckets = { TL: [], TR: [], BL: [], BR: [] };
+  const step = 3; // sample every 3rd pixel for speed
 
   for (let y = 0; y < h; y += step) {
-    // Only scan if in outer 30%
-    if (y >= borderY && y < h - borderY) continue;
     for (let x = 0; x < w; x += step) {
-      if (x >= borderX && x < w - borderX && y >= borderY && y < h - borderY) continue;
       const i = (y * w + x) * 4;
       const r = d[i], g = d[i + 1], b = d[i + 2];
-      const [hue, sat, val] = rgbToHsv(r, g, b);
+
+      // Classify by RGB ratios first (faster than full HSV for strong colors)
+      const mx = Math.max(r, g, b);
+      const mn = Math.min(r, g, b);
+      if (mx < 60) continue; // too dark, skip
+
+      const sat = mx > 0 ? (mx - mn) / mx : 0;
 
       let key = null;
-      if (hue >= 150 && hue <= 210 && sat > 30 && val > 40)       key = 'TL'; // Cyan
-      else if (hue >= 270 && hue <= 330 && sat > 30 && val > 40)  key = 'TR'; // Magenta
-      else if (hue >= 40 && hue <= 80 && sat > 30 && val > 40)    key = 'BL'; // Yellow
-      else if (sat < 20 && val > 70)                                key = 'BR'; // White
+      if (sat > 0.3) {
+        // Saturated color — check hue via RGB dominance
+        if (g > 120 && b > 120 && r < g * 0.6)       key = 'TL'; // Cyan (high G+B, low R)
+        else if (r > 120 && b > 120 && g < r * 0.6)   key = 'TR'; // Magenta (high R+B, low G)
+        else if (r > 120 && g > 120 && b < r * 0.6)   key = 'BL'; // Yellow (high R+G, low B)
+      } else if (sat < 0.25 && mx > 150) {
+        // Low saturation, bright = white candidate
+        // Require all channels reasonably high
+        if (r > 130 && g > 130 && b > 130) key = 'BR';
+      }
 
-      if (key) { acc[key][0] += x; acc[key][1] += y; acc[key][2]++; }
+      if (key) buckets[key].push([x, y]);
     }
   }
 
+  // Compute centroid for each color, require minimum pixel count
   const result = {};
-  for (const [key, [sx, sy, cnt]] of Object.entries(acc)) {
-    if (cnt >= 10) result[key] = [sx / cnt, sy / cnt];
+  for (const [key, pts] of Object.entries(buckets)) {
+    if (pts.length < 5) continue;
+    let sx = 0, sy = 0;
+    for (const [px, py] of pts) { sx += px; sy += py; }
+    result[key] = [sx / pts.length, sy / pts.length];
   }
+
+  // Sanity check: markers should form a roughly rectangular arrangement
+  // TL should be top-left of TR, BL should be below TL, etc.
+  if (result.TL && result.TR && result.BL && result.BR) {
+    const [tlx,tly] = result.TL, [trx,try_] = result.TR;
+    const [blx,bly] = result.BL, [brx,bry] = result.BR;
+    // TL should be left of TR, above BL
+    if (tlx > trx + 10 || tly > bly + 10) return {};
+    // BR should be right of BL, below TR
+    if (brx < blx - 10 || bry < try_ - 10) return {};
+  }
+
   return result;
 }
+let debugStr = '';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Sample a 3×3 patch around (cx,cy) from ImageData (§6.7)
@@ -630,7 +655,15 @@ const CELL_PX = 20;
 async function processFrame(imgData, w, h) {
   // 1. Detect markers
   const markers = detectMarkers(imgData.data, w, h);
-  if (!markers.TL || !markers.TR || !markers.BL || !markers.BR) {
+  const found = ['TL','TR','BL','BR'].filter(k => markers[k]);
+
+  // Show debug info during search
+  if (state === S.SEARCHING) {
+    const missing = ['TL','TR','BL','BR'].filter(k => !markers[k]);
+    elStats.textContent = `Corners: ${found.join(',')}${found.length<4 ? ' | Missing: '+missing.join(',') : ' | ALL FOUND'} | ${w}x${h}`;
+  }
+
+  if (found.length < 4) {
     if (state === S.SEARCHING) updateUI();
     return;
   }
@@ -674,13 +707,26 @@ async function processFrame(imgData, w, h) {
     }
   }
 
-  // 5. Draw overlay dots for debug
+  // 5. Draw overlay dots + labels for debug
   octx.clearRect(0, 0, ovl.width, ovl.height);
   const sx = ovl.width / w, sy = ovl.height / h;
   const clr = { TL: 'cyan', TR: 'magenta', BL: 'yellow', BR: 'white' };
   for (const [k, [px, py]] of Object.entries(markers)) {
-    octx.beginPath(); octx.arc(px * sx, py * sy, 5, 0, Math.PI * 2);
-    octx.fillStyle = clr[k]; octx.fill();
+    const dx = px * sx, dy = py * sy;
+    octx.beginPath(); octx.arc(dx, dy, 8, 0, Math.PI * 2);
+    octx.strokeStyle = clr[k]; octx.lineWidth = 3; octx.stroke();
+    octx.fillStyle = clr[k]; octx.font = 'bold 12px monospace';
+    octx.fillText(k, dx + 10, dy - 4);
+  }
+  // Draw lines between corners to show detected quad
+  if (markers.TL && markers.TR && markers.BL && markers.BR) {
+    octx.beginPath();
+    octx.moveTo(markers.TL[0]*sx, markers.TL[1]*sy);
+    octx.lineTo(markers.TR[0]*sx, markers.TR[1]*sy);
+    octx.lineTo(markers.BR[0]*sx, markers.BR[1]*sy);
+    octx.lineTo(markers.BL[0]*sx, markers.BL[1]*sy);
+    octx.closePath();
+    octx.strokeStyle = 'rgba(100,255,100,0.5)'; octx.lineWidth = 2; octx.stroke();
   }
 
   // === SEARCHING: need config first ===
