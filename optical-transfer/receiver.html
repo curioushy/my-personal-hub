@@ -447,15 +447,15 @@ function detectMarkers(d, w, h) {
       const sat = mx > 0 ? (mx - mn) / mx : 0;
 
       let key = null;
-      if (sat > 0.3) {
+      if (sat > 0.25) {
         // Saturated color — check hue via RGB dominance
-        if (g > 120 && b > 120 && r < g * 0.6)       key = 'TL'; // Cyan (high G+B, low R)
-        else if (r > 120 && b > 120 && g < r * 0.6)   key = 'TR'; // Magenta (high R+B, low G)
-        else if (r > 120 && g > 120 && b < r * 0.6)   key = 'BL'; // Yellow (high R+G, low B)
-      } else if (sat < 0.25 && mx > 150) {
-        // Low saturation, bright = white candidate
-        // Require all channels reasonably high
-        if (r > 130 && g > 130 && b > 130) key = 'BR';
+        if (g > 100 && b > 100 && r < g * 0.65)       key = 'TL'; // Cyan (high G+B, low R)
+        else if (r > 100 && b > 100 && g < r * 0.65)   key = 'TR'; // Magenta (high R+B, low G)
+        else if (r > 100 && g > 100 && b < r * 0.65)   key = 'BL'; // Yellow (high R+G, low B)
+      } else if (mx > 120) {
+        // Low saturation + bright = white candidate
+        // Through camera, white can look dim or tinted
+        if (r > 100 && g > 100 && b > 100) key = 'BR';
       }
 
       if (key) buckets[key].push([x, y]);
@@ -493,11 +493,8 @@ function detectMarkers(d, w, h) {
       let sx = 0, sy = 0;
       for (const [px, py] of nearWhite) { sx += px; sy += py; }
       result.BR = [sx / nearWhite.length, sy / nearWhite.length];
-    } else {
-      // Fallback: use the predicted position directly if white pixels are sparse
-      // (the white marker might be washed out but we know where it should be)
-      result.BR = [predX, predY];
     }
+    // If no white pixels found near prediction, don't fake it — skip this frame
   } else if (buckets.BR.length >= 5) {
     // No 3-corner prediction available — use raw centroid as last resort
     let sx = 0, sy = 0;
