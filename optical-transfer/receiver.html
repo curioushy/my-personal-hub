@@ -434,101 +434,97 @@ function applyAffine(T, x, y) {
 // Corner Marker Detection — full frame scan (§6.5)
 // ═══════════════════════════════════════════════════════════════════════════
 function detectMarkers(d, w, h) {
-  // Collect matching pixel positions per color, then find the largest cluster
   const buckets = { TL: [], TR: [], BL: [] };
-  const step = 3; // sample every 3rd pixel for speed
+  const step = 3;
 
-  for (let y = 0; y < h; y += step) {
-    for (let x = 0; x < w; x += step) {
-      const i = (y * w + x) * 4;
-      const r = d[i], g = d[i + 1], b = d[i + 2];
+  // ── Quadrant constraint ──
+  // Search each marker only in its expected 2/3-corner of the frame.
+  // Eliminates ~75% of each frame as a source of false positives.
+  // 65%/35% splits with generous central overlap for off-centre grids.
+  const xR = Math.round(w * 0.65), xL = Math.round(w * 0.35);
+  const yB = Math.round(h * 0.65), yT = Math.round(h * 0.35);
+  const ranges = { TL:[0,xR,0,yB], TR:[xL,w,0,yB], BL:[0,xR,yT,h] };
 
-      const mx = Math.max(r, g, b);
-      if (mx < 35) continue; // truly black/near-black pixel
+  for (const key of ['TL','TR','BL']) {
+    const [x0,x1,y0,y1] = ranges[key];
+    for (let y = Math.max(step,y0); y < Math.min(h-step,y1); y += step) {
+      for (let x = Math.max(step,x0); x < Math.min(w-step,x1); x += step) {
+        const i = (y*w+x)*4;
+        const r=d[i], g=d[i+1], b=d[i+2];
+        const mx = Math.max(r,g,b);
+        if (mx < 35) continue;
 
-      // ── Ratio-based 2-channel detection ──
-      // Each CMY marker has TWO channels near the max and ONE suppressed.
-      // Using ratios normalises for monitor brightness and colour temperature.
-      // hiT: both strong channels must be ≥ 52% of max
-      // loT: the weak channel must be < 38% of max
-      // These are deliberately loose on the strong-channel side and tight on
-      // the weak-channel side so we don't miss dim markers while avoiding
-      // single-channel (R/G/B) data-cell hits.
-      // Strict ratio: strong channels must be ≥60% of max (reduces data-cell
-      // blending false positives), weak channel must be <32% (tight rejection).
-      // The absolute floor mx>35 catches dim monitors where old ">130" failed.
-      const hiT = mx * 0.60;
-      const loT = mx * 0.32;
+        // Ratio-based 2-channel detection
+        const hiT=mx*0.60, loT=mx*0.32;
+        let ok = false;
+        if      (key==='TL' && g>=hiT && b>=hiT && r<loT) ok=true;
+        else if (key==='TR' && r>=hiT && b>=hiT && g<loT) ok=true;
+        else if (key==='BL' && r>=hiT && g>=hiT && b<loT) ok=true;
+        if (!ok) continue;
 
-      let key = null;
-      // Cyan (TL):    G≈max, B≈max, R suppressed
-      if      (g >= hiT && b >= hiT && r < loT) key = 'TL';
-      // Magenta (TR): R≈max, B≈max, G suppressed
-      else if (r >= hiT && b >= hiT && g < loT) key = 'TR';
-      // Yellow (BL):  R≈max, G≈max, B suppressed
-      else if (r >= hiT && g >= hiT && b < loT) key = 'BL';
-
-      if (key) buckets[key].push([x, y]);
+        // ── Neighbour verification ──
+        // Require ≥ 3 of 4 axis-aligned step-neighbours to also match.
+        // A 1-pixel-wide camera blending artifact at a cell boundary has at
+        // most 2 matching neighbours (along that boundary) → rejected.
+        // Interior pixels of the solid 3×3 marker have all 4 → pass.
+        let nn = 0;
+        for (const [dx,dy] of [[step,0],[-step,0],[0,step],[0,-step]]) {
+          const nx=x+dx, ny=y+dy;
+          if (nx<0||nx>=w||ny<0||ny>=h) continue;
+          const ni=(ny*w+nx)*4;
+          const nr=d[ni], ng=d[ni+1], nb_=d[ni+2];
+          const nmx=Math.max(nr,ng,nb_);
+          if (nmx<35) continue;
+          const nhiT=nmx*0.60, nloT=nmx*0.32;
+          if      (key==='TL'&&ng>=nhiT&&nb_>=nhiT&&nr<nloT) nn++;
+          else if (key==='TR'&&nr>=nhiT&&nb_>=nhiT&&ng<nloT) nn++;
+          else if (key==='BL'&&nr>=nhiT&&ng>=nhiT&&nb_<nloT) nn++;
+        }
+        if (nn >= 3) buckets[key].push([x, y]);
+      }
     }
   }
 
   // ── Density-based clustering ──
-  // The actual 3×3 marker is a compact blob; false positives (e.g. camera
-  // blending at R+B cell edges) are scattered thinly across the frame.
-  // Find the bin with the highest neighbour-count and centroid its pixels.
+  // After neighbour filtering, surviving pixels are almost exclusively from
+  // the actual marker block — far fewer but far more reliable.
   function densestCluster(pts) {
-    if (pts.length < 5) return null;
-    const BINS = 14; // finer grid → more precise cluster centres
-    const bw = w / BINS, bh = h / BINS;
-    const counts = new Int32Array(BINS * BINS);
-    for (const [px, py] of pts) {
-      const bx = Math.min(BINS-1, Math.floor(px / bw));
-      const by = Math.min(BINS-1, Math.floor(py / bh));
-      counts[by * BINS + bx]++;
+    if (pts.length < 3) return null;
+    const BINS = 12;
+    const bw=w/BINS, bh=h/BINS;
+    const counts = new Int32Array(BINS*BINS);
+    for (const [px,py] of pts) {
+      counts[Math.min(BINS-1,Math.floor(py/bh))*BINS + Math.min(BINS-1,Math.floor(px/bw))]++;
     }
-    // Sliding 3×3 window sum
-    let best = 0, bbx = 0, bby = 0;
-    for (let by = 0; by < BINS; by++) {
-      for (let bx = 0; bx < BINS; bx++) {
-        let sum = 0;
-        for (let dy = -1; dy <= 1; dy++)
-          for (let dx = -1; dx <= 1; dx++) {
-            const nx = bx+dx, ny = by+dy;
-            if (nx >= 0 && nx < BINS && ny >= 0 && ny < BINS)
-              sum += counts[ny * BINS + nx];
-          }
-        if (sum > best) { best = sum; bbx = bx; bby = by; }
+    let best=0, bbx=0, bby=0;
+    for (let by=0;by<BINS;by++) for (let bx=0;bx<BINS;bx++) {
+      let sum=0;
+      for (let dy=-1;dy<=1;dy++) for (let dx=-1;dx<=1;dx++) {
+        const nx=bx+dx, ny=by+dy;
+        if (nx>=0&&nx<BINS&&ny>=0&&ny<BINS) sum+=counts[ny*BINS+nx];
       }
+      if (sum>best) { best=sum; bbx=bx; bby=by; }
     }
-    if (best < 5) return null;
-    // Centroid of pixels that fall in the winning 3×3 window
-    let sx = 0, sy = 0, cnt = 0;
-    for (const [px, py] of pts) {
-      const bx = Math.min(BINS-1, Math.floor(px / bw));
-      const by = Math.min(BINS-1, Math.floor(py / bh));
-      if (Math.abs(bx - bbx) <= 1 && Math.abs(by - bby) <= 1) {
-        sx += px; sy += py; cnt++;
-      }
+    if (best < 3) return null;
+    let sx=0, sy=0, cnt=0;
+    for (const [px,py] of pts) {
+      const bx=Math.min(BINS-1,Math.floor(px/bw)), by=Math.min(BINS-1,Math.floor(py/bh));
+      if (Math.abs(bx-bbx)<=1 && Math.abs(by-bby)<=1) { sx+=px; sy+=py; cnt++; }
     }
-    return cnt >= 4 ? [sx / cnt, sy / cnt] : null;
+    return cnt >= 2 ? [sx/cnt, sy/cnt] : null;
   }
 
-  // Detect TL (cyan), TR (magenta), BL (yellow) using density clustering
   const result = {};
-  for (const key of ['TL', 'TR', 'BL']) {
-    result[key] = densestCluster(buckets[key]);
-  }
+  for (const key of ['TL','TR','BL']) result[key] = densestCluster(buckets[key]);
 
-  // Sanity: TL should be left of TR, TL should be above BL
   if (result.TL && result.TR && result.BL) {
-    const [tlx,tly] = result.TL, [trx] = result.TR, [,bly] = result.BL;
-    if (tlx > trx + 10 || tly > bly + 10) return { pts: {}, counts: {} };
+    const [tlx,tly]=result.TL, [trx]=result.TR, [,bly]=result.BL;
+    if (tlx>trx+10 || tly>bly+10) return { pts:{}, counts:{} };
   }
 
-  // Return positions AND raw pixel counts for diagnostics
   return {
     pts: result,
-    counts: { TL: buckets.TL.length, TR: buckets.TR.length, BL: buckets.BL.length }
+    counts: { TL:buckets.TL.length, TR:buckets.TR.length, BL:buckets.BL.length }
   };
 }
 
