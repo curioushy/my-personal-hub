@@ -381,59 +381,53 @@ function isMarker(row, col, N) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// 4-Point Homography (DLT) + 3×3 Inverse (§6.6)
+// 3-Point Affine Transform (replaces 4-point homography)
+// Only needs TL, TR, BL — no white BR marker required.
+// Handles rotation, scale, translation, shear. No perspective (close enough
+// for a phone roughly facing a screen).
 // ═══════════════════════════════════════════════════════════════════════════
-function computeHomography(src, dst) {
-  const A = [], bv = [];
-  for (let i = 0; i < 4; i++) {
-    const [xs, ys] = src[i], [xd, yd] = dst[i];
-    A.push([xs, ys, 1, 0, 0, 0, -xd * xs, -xd * ys]);
-    bv.push(xd);
-    A.push([0, 0, 0, xs, ys, 1, -yd * xs, -yd * ys]);
-    bv.push(yd);
-  }
-  const h = gauss8(A, bv);
-  if (!h) return null;
-  return [h[0], h[1], h[2], h[3], h[4], h[5], h[6], h[7], 1];
-}
+function computeAffine(src, dst) {
+  // src/dst are arrays of 3 points: [TL, TR, BL]
+  // Solves: dst = A * src (affine)
+  // Returns {a,b,tx,c,d,ty} such that:
+  //   x' = a*x + b*y + tx
+  //   y' = c*x + d*y + ty
+  const [x1,y1] = src[0], [x2,y2] = src[1], [x3,y3] = src[2];
+  const [u1,v1] = dst[0], [u2,v2] = dst[1], [u3,v3] = dst[2];
 
-function gauss8(A, b) {
-  const n = 8;
-  const M = A.map((row, i) => [...row, b[i]]);
-  for (let c = 0; c < n; c++) {
-    let piv = -1, mx = 0;
-    for (let r = c; r < n; r++) {
-      const v = Math.abs(M[r][c]);
-      if (v > mx) { mx = v; piv = r; }
-    }
-    if (piv < 0 || mx < 1e-12) return null;
-    [M[c], M[piv]] = [M[piv], M[c]];
-    const s = M[c][c];
-    for (let j = c; j <= n; j++) M[c][j] /= s;
-    for (let r = 0; r < n; r++) {
-      if (r === c) continue;
-      const f = M[r][c];
-      for (let j = c; j <= n; j++) M[r][j] -= f * M[c][j];
-    }
-  }
-  return M.map(row => row[n]);
-}
-
-function invertH(H) {
-  const [a, b, c, d, e, f, g, h, k] = H;
-  const det = a * (e * k - f * h) - b * (d * k - f * g) + c * (d * h - e * g);
-  if (Math.abs(det) < 1e-12) return null;
+  // Solve two 3x3 systems via Cramer's rule
+  const det = x1*(y2-y3) - y1*(x2-x3) + (x2*y3 - x3*y2);
+  if (Math.abs(det) < 1e-10) return null;
   const id = 1 / det;
-  return [
-    (e*k - f*h)*id, -(b*k - c*h)*id,  (b*f - c*e)*id,
-   -(d*k - f*g)*id,  (a*k - c*g)*id, -(a*f - c*d)*id,
-    (d*h - e*g)*id, -(a*h - b*g)*id,  (a*e - b*d)*id
-  ];
+
+  const a  = (u1*(y2-y3) - y1*(u2-u3) + (u2*y3-u3*y2)) * id;
+  const b  = (x1*(u2-u3) - u1*(x2-x3) + (x2*u3-x3*u2)) * id;
+  const tx = (x1*(y2*u3-y3*u2) - y1*(x2*u3-x3*u2) + u1*(x2*y3-x3*y2)) * id;
+
+  const c  = (v1*(y2-y3) - y1*(v2-v3) + (v2*y3-v3*y2)) * id;
+  const d  = (x1*(v2-v3) - v1*(x2-x3) + (x2*v3-x3*v2)) * id;
+  const ty = (x1*(y2*v3-y3*v2) - y1*(x2*v3-x3*v2) + v1*(x2*y3-x3*y2)) * id;
+
+  return {a,b,tx,c,d,ty};
 }
 
-function applyH(H, x, y) {
-  const w = H[6] * x + H[7] * y + H[8];
-  return [(H[0] * x + H[1] * y + H[2]) / w, (H[3] * x + H[4] * y + H[5]) / w];
+function invertAffine(T) {
+  // Inverse of affine: A^-1
+  const det = T.a * T.d - T.b * T.c;
+  if (Math.abs(det) < 1e-10) return null;
+  const id = 1 / det;
+  return {
+    a:   T.d * id,
+    b:  -T.b * id,
+    tx: (T.b * T.ty - T.d * T.tx) * id,
+    c:  -T.c * id,
+    d:   T.a * id,
+    ty: (T.c * T.tx - T.a * T.ty) * id,
+  };
+}
+
+function applyAffine(T, x, y) {
+  return [T.a * x + T.b * y + T.tx, T.c * x + T.d * y + T.ty];
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -522,36 +516,16 @@ function detectMarkers(d, w, h) {
     return cnt >= 3 ? [sx / cnt, sy / cnt] : null;
   }
 
-  // Detect TL, TR, BL using density clustering
+  // Detect TL, TR, BL using density clustering (skip BR — white is unreliable)
   const result = {};
   for (const key of ['TL', 'TR', 'BL']) {
     result[key] = densestCluster(buckets[key]);
   }
 
-  // BR (white): quadrant-filter first (blocks phone reflection in center),
-  // then find densest cluster within the correct quadrant
+  // Sanity: TL should be left of TR, TL should be above BL
   if (result.TL && result.TR && result.BL) {
-    const centerX = (result.TL[0] + result.TR[0]) / 2;
-    const centerY = (result.TL[1] + result.BL[1]) / 2;
-    const brPts = buckets.BR.filter(([px, py]) => px > centerX && py > centerY);
-    const brCluster = densestCluster(brPts);
-    if (brCluster) {
-      result.BR = brCluster;
-    } else {
-      // Fallback: geometric prediction
-      result.BR = [
-        result.TR[0] + result.BL[0] - result.TL[0],
-        result.TR[1] + result.BL[1] - result.TL[1]
-      ];
-    }
-  }
-
-  // Sanity: check quadrilateral
-  if (result.TL && result.TR && result.BL && result.BR) {
-    const [tlx,tly] = result.TL, [trx,try_] = result.TR;
-    const [blx,bly] = result.BL, [brx,bry] = result.BR;
-    if (tlx > trx + 10 || tly > bly + 10 || brx < blx - 10 || bry < try_ - 10)
-      return {};
+    const [tlx,tly] = result.TL, [trx,try_] = result.TR, [blx,bly] = result.BL;
+    if (tlx > trx + 10 || tly > bly + 10) return {};
   }
 
   return result;
@@ -560,12 +534,12 @@ function detectMarkers(d, w, h) {
 // ═══════════════════════════════════════════════════════════════════════════
 // Temporal Smoothing — stabilize marker positions across frames
 // ═══════════════════════════════════════════════════════════════════════════
-const smoothedMarkers = { TL: null, TR: null, BL: null, BR: null };
+const smoothedMarkers = { TL: null, TR: null, BL: null };
 const SMOOTH_ALPHA = 0.35; // 0=frozen, 1=no smoothing
 
 function smoothMarkers(raw) {
   const result = {};
-  for (const key of ['TL', 'TR', 'BL', 'BR']) {
+  for (const key of ['TL', 'TR', 'BL']) {
     if (!raw[key]) {
       // If a corner disappears, keep the last known position for a few frames
       if (smoothedMarkers[key]) result[key] = smoothedMarkers[key];
@@ -590,7 +564,7 @@ function smoothMarkers(raw) {
 }
 
 function resetSmoothing() {
-  for (const key of ['TL','TR','BL','BR']) smoothedMarkers[key] = null;
+  for (const key of ['TL','TR','BL']) smoothedMarkers[key] = null;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -823,51 +797,58 @@ async function processFrame(imgData, w, h) {
   // 1. Detect markers (raw) then smooth
   const rawMarkers = detectMarkers(imgData.data, w, h);
   const markers = smoothMarkers(rawMarkers);
-  const found = ['TL','TR','BL','BR'].filter(k => markers[k]);
+  // Only need 3 corners (TL, TR, BL) — white BR is dropped
+  const found = ['TL','TR','BL'].filter(k => markers[k]);
 
   // Show debug info during search
   if (state === S.SEARCHING) {
-    const rawFound = ['TL','TR','BL','BR'].filter(k => rawMarkers[k]);
-    const missing = ['TL','TR','BL','BR'].filter(k => !markers[k]);
-    elStats.textContent = `Corners: ${found.join(',')}${found.length<4 ? ' | Missing: '+missing.join(',') : ' | ALL FOUND'} | Raw: ${rawFound.length}/4 | ${w}x${h}`;
+    const rawFound = ['TL','TR','BL'].filter(k => rawMarkers[k]);
+    const missing = ['TL','TR','BL'].filter(k => !markers[k]);
+    elStats.textContent = `Corners: ${found.join(',')}${found.length<3 ? ' | Missing: '+missing.join(',') : ' | ALL 3 FOUND'} | Raw: ${rawFound.length}/3 | ${w}x${h}`;
   }
 
-  if (found.length < 4) {
+  if (found.length < 3) {
     if (state === S.SEARCHING) updateUI();
     return;
   }
 
   const N = cfg ? cfg.grid_size : 24;
-  const SIZE = N * CELL_PX;
 
-  // 2. Homography: camera → canonical grid
-  const srcPts = [markers.TL, markers.TR, markers.BL, markers.BR];
+  // 2. Affine transform: camera → canonical grid (3 points, no BR needed)
+  const srcPts = [markers.TL, markers.TR, markers.BL];
   const dstPts = [
-    [1.5 * CELL_PX, 1.5 * CELL_PX],
-    [(N - 1.5) * CELL_PX, 1.5 * CELL_PX],
-    [1.5 * CELL_PX, (N - 1.5) * CELL_PX],
-    [(N - 1.5) * CELL_PX, (N - 1.5) * CELL_PX],
+    [1.5 * CELL_PX, 1.5 * CELL_PX],        // TL marker center
+    [(N - 1.5) * CELL_PX, 1.5 * CELL_PX],   // TR marker center
+    [1.5 * CELL_PX, (N - 1.5) * CELL_PX],   // BL marker center
   ];
 
-  const H = computeHomography(srcPts, dstPts);
-  if (!H) return;
-  const Hi = invertH(H);
-  if (!Hi) return;
+  const A = computeAffine(srcPts, dstPts);
+  if (!A) return;
+  const Ai = invertAffine(A);
+  if (!Ai) return;
 
-  // 3. White balance from BR (WHITE) marker (§6.8)
-  const [wr, wg, wb] = samplePatch(imgData.data, w, h, markers.BR[0], markers.BR[1]);
-  const corrR = wr > 10 ? 255 / wr : 1;
-  const corrG = wg > 10 ? 255 / wg : 1;
-  const corrB = wb > 10 ? 255 / wb : 1;
+  // 3. White balance: compute where BR marker SHOULD be via affine, sample there
+  const brCanonical = [(N - 1.5) * CELL_PX, (N - 1.5) * CELL_PX];
+  const [brCamX, brCamY] = applyAffine(Ai, brCanonical[0], brCanonical[1]);
+  const [wr, wg, wb] = samplePatch(imgData.data, w, h, brCamX, brCamY);
+  // Only apply white balance if the sample looks white-ish (low saturation)
+  const wMax = Math.max(wr, wg, wb), wMin = Math.min(wr, wg, wb);
+  const wSat = wMax > 0 ? (wMax - wMin) / wMax : 0;
+  let corrR = 1, corrG = 1, corrB = 1;
+  if (wSat < 0.3 && wMax > 80) {
+    corrR = wr > 10 ? 255 / wr : 1;
+    corrG = wg > 10 ? 255 / wg : 1;
+    corrB = wb > 10 ? 255 / wb : 1;
+  }
 
-  // 4. Sample data cells
+  // 4. Sample data cells using affine inverse
   const cells = [];
   for (let row = 0; row < N; row++) {
     for (let col = 0; col < N; col++) {
       if (isMarker(row, col, N)) continue;
       const cx = (col + 0.5) * CELL_PX;
       const cy = (row + 0.5) * CELL_PX;
-      const [camX, camY] = applyH(Hi, cx, cy);
+      const [camX, camY] = applyAffine(Ai, cx, cy);
       let [r, g, b] = samplePatch(imgData.data, w, h, camX, camY);
       r = Math.min(255, r * corrR);
       g = Math.min(255, g * corrG);
@@ -876,27 +857,31 @@ async function processFrame(imgData, w, h) {
     }
   }
 
-  // 5. Draw overlay dots + labels for debug
+  // 5. Draw overlay — 3 detected corners + computed BR
   octx.clearRect(0, 0, ovl.width, ovl.height);
   const sx = ovl.width / w, sy = ovl.height / h;
-  const clr = { TL: 'cyan', TR: 'magenta', BL: 'yellow', BR: 'white' };
+  const clr = { TL: 'cyan', TR: 'magenta', BL: 'yellow' };
   for (const [k, [px, py]] of Object.entries(markers)) {
+    if (!clr[k]) continue;
     const dx = px * sx, dy = py * sy;
     octx.beginPath(); octx.arc(dx, dy, 8, 0, Math.PI * 2);
     octx.strokeStyle = clr[k]; octx.lineWidth = 3; octx.stroke();
     octx.fillStyle = clr[k]; octx.font = 'bold 12px monospace';
     octx.fillText(k, dx + 10, dy - 4);
   }
-  // Draw lines between corners to show detected quad
-  if (markers.TL && markers.TR && markers.BL && markers.BR) {
-    octx.beginPath();
-    octx.moveTo(markers.TL[0]*sx, markers.TL[1]*sy);
-    octx.lineTo(markers.TR[0]*sx, markers.TR[1]*sy);
-    octx.lineTo(markers.BR[0]*sx, markers.BR[1]*sy);
-    octx.lineTo(markers.BL[0]*sx, markers.BL[1]*sy);
-    octx.closePath();
-    octx.strokeStyle = 'rgba(100,255,100,0.5)'; octx.lineWidth = 2; octx.stroke();
-  }
+  // Draw computed BR position (derived, not detected)
+  octx.beginPath(); octx.arc(brCamX * sx, brCamY * sy, 6, 0, Math.PI * 2);
+  octx.strokeStyle = 'rgba(255,255,255,0.5)'; octx.lineWidth = 2; octx.stroke();
+  octx.fillStyle = 'rgba(255,255,255,0.6)'; octx.font = 'bold 10px monospace';
+  octx.fillText('br', brCamX * sx + 8, brCamY * sy - 3);
+  // Draw triangle from 3 corners + line to computed BR
+  octx.beginPath();
+  octx.moveTo(markers.TL[0]*sx, markers.TL[1]*sy);
+  octx.lineTo(markers.TR[0]*sx, markers.TR[1]*sy);
+  octx.lineTo(brCamX*sx, brCamY*sy);
+  octx.lineTo(markers.BL[0]*sx, markers.BL[1]*sy);
+  octx.closePath();
+  octx.strokeStyle = 'rgba(100,255,100,0.5)'; octx.lineWidth = 2; octx.stroke();
 
   // === Draw debug grid — show what receiver "sees" ===
   const dbgCanvas = document.getElementById('debug-canvas');
