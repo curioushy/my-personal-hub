@@ -1,0 +1,1648 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Spinningfields & Deansgate, Manchester — Competitive Map | Exploratory Series by Curious_HY</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+    <script src="spinningfields_data.js"></script>
+    <script src="spinningfields_availability.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background-color: #f5f5f5;
+            color: #333;
+        }
+
+        header {
+            background: linear-gradient(135deg, #1a3a52 0%, #2c5282 100%);
+            color: white;
+            padding: 2.5rem 2rem;
+            text-align: center;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+        }
+
+        header h1 {
+            font-size: 2rem;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+            letter-spacing: -0.5px;
+        }
+
+        header p {
+            font-size: 1rem;
+            opacity: 0.95;
+            font-weight: 300;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        /* Landing Page Styles */
+        .landing-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 2rem;
+            padding: 2rem;
+        }
+
+        .site-card {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            padding: 2rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            border: 2px solid transparent;
+        }
+
+        .site-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 8px 16px rgba(0,0,0,0.15);
+            border-color: #2c5282;
+        }
+
+        .site-card h2 {
+            color: #1a3a52;
+            font-size: 1.5rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .site-card p {
+            color: #666;
+            font-size: 0.95rem;
+            margin-bottom: 1rem;
+        }
+
+        .site-card .building-count {
+            color: #2c5282;
+            font-weight: 600;
+            font-size: 0.9rem;
+        }
+
+        .map-section {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .map-and-detail {
+            display: grid;
+            grid-template-columns: 1fr 380px;
+            gap: 1.25rem;
+            align-items: start;
+        }
+
+        .map-column {
+            min-width: 0;
+        }
+
+        #map {
+            width: 100%;
+            height: 550px;
+            border-radius: 6px;
+            border: 1px solid #e0e0e0;
+        }
+
+        /* Inline detail panel (always visible, right of map) */
+        .detail-panel {
+            height: 550px;
+            overflow-y: auto;
+            background: #f8f9fa;
+            border-radius: 8px;
+            border: 1px solid #e0e0e0;
+        }
+        .detail-panel-empty {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            color: #aaa;
+            text-align: center;
+            padding: 2rem;
+        }
+        .detail-panel-empty svg {
+            margin-bottom: 1rem;
+            opacity: 0.4;
+        }
+        .detail-panel-empty p {
+            font-size: 0.9rem;
+            line-height: 1.5;
+        }
+        .dp-header {
+            padding: 1rem 1.25rem 0.75rem;
+            background: linear-gradient(135deg, #1a3a52 0%, #2c5282 100%);
+            color: white;
+            border-radius: 8px 8px 0 0;
+        }
+        .dp-name {
+            font-size: 1.15rem;
+            font-weight: 700;
+            margin-bottom: 0.15rem;
+        }
+        .dp-address {
+            font-size: 0.82rem;
+            opacity: 0.85;
+            margin-bottom: 0.4rem;
+        }
+        .dp-badges {
+            display: flex;
+            gap: 0.4rem;
+            flex-wrap: wrap;
+        }
+        .dp-badges .bp-badge {
+            font-size: 0.72rem;
+            padding: 0.2rem 0.5rem;
+        }
+        .dp-section {
+            padding: 0.75rem 1.25rem;
+            border-bottom: 1px solid #eee;
+        }
+        .dp-section:last-child {
+            border-bottom: none;
+        }
+        .dp-section-title {
+            font-size: 0.72rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
+            color: #94a3b8;
+            margin-bottom: 0.5rem;
+        }
+        .dp-stats-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0.5rem;
+        }
+        .dp-stat {
+            background: white;
+            border-radius: 5px;
+            padding: 0.45rem 0.6rem;
+        }
+        .dp-stat-label {
+            font-size: 0.68rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+            color: #94a3b8;
+            margin-bottom: 0.1rem;
+        }
+        .dp-stat-value {
+            font-size: 0.88rem;
+            font-weight: 600;
+            color: #1a3a52;
+        }
+        .dp-stat-full {
+            grid-column: 1 / -1;
+        }
+        .dp-owner {
+            font-size: 0.88rem;
+            color: #333;
+            font-weight: 500;
+        }
+        .dp-tenants-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+        .dp-tenants-list li {
+            padding: 0.3rem 0;
+            border-bottom: 1px solid #f0f0f0;
+            font-size: 0.82rem;
+            color: #333;
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+        }
+        .dp-tenants-list li:last-child { border-bottom: none; }
+        .dp-notes {
+            font-size: 0.82rem;
+            line-height: 1.5;
+            color: #555;
+        }
+
+        @media (max-width: 1000px) {
+            .map-and-detail {
+                grid-template-columns: 1fr;
+            }
+            .detail-panel {
+                height: auto;
+                max-height: 400px;
+            }
+        }
+
+        .legend {
+            background: white;
+            padding: 1.25rem;
+            border-radius: 6px;
+            margin-top: 1.5rem;
+            font-size: 0.95rem;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+        }
+
+        .legend-title {
+            font-weight: 600;
+            margin-bottom: 1rem;
+            color: #1a3a52;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 0.75rem;
+        }
+
+        .legend-color {
+            margin-right: 12px;
+            border-radius: 50%;
+            border: 1px solid rgba(0,0,0,0.1);
+            flex-shrink: 0;
+        }
+
+        .tables-section {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            padding: 2rem;
+            margin-bottom: 2rem;
+        }
+
+        .table-title {
+            font-size: 1.35rem;
+            font-weight: 600;
+            color: #1a3a52;
+            margin-bottom: 1.5rem;
+            padding-bottom: 0.75rem;
+            border-bottom: 2px solid #2c5282;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 2.5rem;
+            font-size: 0.95rem;
+        }
+
+        thead {
+            background-color: #f8f9fa;
+            border-top: 2px solid #2c5282;
+            border-bottom: 2px solid #2c5282;
+        }
+
+        th {
+            padding: 1rem;
+            text-align: left;
+            font-weight: 600;
+            color: #1a3a52;
+            white-space: nowrap;
+        }
+
+        th.sortable {
+            cursor: pointer;
+            user-select: none;
+            position: relative;
+            padding-right: 1.5rem;
+        }
+
+        th.sortable:hover {
+            background-color: #edf2f7;
+        }
+
+        th.sortable::after {
+            content: '⇅';
+            position: absolute;
+            right: 0.4rem;
+            opacity: 0.3;
+            font-size: 0.8rem;
+        }
+
+        th.sortable.sort-asc::after {
+            content: '▲';
+            opacity: 0.8;
+            color: #2c5282;
+        }
+
+        th.sortable.sort-desc::after {
+            content: '▼';
+            opacity: 0.8;
+            color: #2c5282;
+        }
+
+        td {
+            padding: 1rem;
+            border-bottom: 1px solid #e9ecef;
+        }
+
+        tbody tr:nth-child(even) {
+            background-color: #f8f9fa;
+        }
+
+        tbody tr:hover {
+            background-color: #e8f0f7;
+        }
+
+        tbody tr.your-building {
+            background-color: #fff5f5 !important;
+            font-weight: 500;
+        }
+
+        tbody tr.your-building:hover {
+            background-color: #ffe8e8 !important;
+        }
+
+        .building-name {
+            font-weight: 600;
+            color: #1a3a52;
+        }
+
+        .your-building .building-name {
+            color: #d73027;
+        }
+
+        .grade-badge {
+            display: inline-block;
+            padding: 0.35rem 0.65rem;
+            border-radius: 4px;
+            font-size: 0.85rem;
+            font-weight: 600;
+        }
+
+        .grade-a {
+            background-color: #d4edda;
+            color: #155724;
+        }
+
+        .grade-b {
+            background-color: #fff3cd;
+            color: #856404;
+        }
+
+        .transaction-info {
+            font-size: 0.9rem;
+            color: #666;
+        }
+
+        .notes-section {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            padding: 2rem;
+            border-left: 4px solid #2c5282;
+            margin-bottom: 2rem;
+        }
+
+        .notes-title {
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: #1a3a52;
+            margin-bottom: 1.25rem;
+        }
+
+        .notes-content {
+            color: #555;
+            line-height: 1.7;
+        }
+
+        .notes-content ul {
+            margin-left: 1.5rem;
+            margin-bottom: 1rem;
+        }
+
+        .notes-content li {
+            margin-bottom: 0.65rem;
+        }
+
+        .notes-content strong {
+            color: #1a3a52;
+        }
+
+        .building-selector {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            margin-bottom: 1rem;
+            padding: 0.75rem 1rem;
+            background: #f0f4f8;
+            border-radius: 6px;
+            border: 1px solid #d1d8e0;
+        }
+
+        .building-selector label {
+            font-weight: 600;
+            color: #1a3a52;
+            white-space: nowrap;
+        }
+
+        .building-selector select {
+            flex: 1;
+            padding: 0.5rem 0.75rem;
+            border: 1px solid #cbd5e0;
+            border-radius: 4px;
+            font-size: 0.95rem;
+            background: white;
+            max-width: 400px;
+        }
+
+        .section-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            cursor: pointer;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        .section-header:hover {
+            opacity: 0.85;
+        }
+
+        .section-header .collapse-icon {
+            font-size: 0.8rem;
+            color: #94a3b8;
+            transition: transform 0.25s ease;
+            flex-shrink: 0;
+            margin-left: 0.75rem;
+        }
+
+        .section-header .collapse-icon.collapsed {
+            transform: rotate(-90deg);
+        }
+
+        .section-body {
+            overflow: hidden;
+            transition: max-height 0.35s ease, opacity 0.25s ease;
+            max-height: 5000px;
+            opacity: 1;
+        }
+
+        .section-body.collapsed {
+            max-height: 0;
+            opacity: 0;
+            margin-top: 0 !important;
+            padding-top: 0 !important;
+        }
+
+        .competitive-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .metric-card {
+            background: #f8fafc;
+            border-radius: 6px;
+            padding: 1.25rem;
+            border-left: 4px solid #2c5282;
+            text-align: center;
+        }
+
+        .metric-card .label {
+            font-size: 0.85rem;
+            color: #666;
+            font-weight: 600;
+            text-transform: uppercase;
+            margin-bottom: 0.5rem;
+        }
+
+        .metric-card .value {
+            font-size: 1.25rem;
+            color: #1a3a52;
+            font-weight: 700;
+        }
+
+        .nearest-competitors {
+            margin-top: 1.5rem;
+            padding-top: 1.5rem;
+            border-top: 1px solid #e9ecef;
+        }
+
+        .nearest-competitors h4 {
+            font-size: 1rem;
+            color: #1a3a52;
+            margin-bottom: 1rem;
+            font-weight: 600;
+        }
+
+        .nearest-competitors table {
+            margin-bottom: 0;
+        }
+
+        .narrative-section {
+            margin-top: 1.5rem;
+            padding: 1.25rem;
+            background: #f0f7ff;
+            border-radius: 6px;
+            border-left: 4px solid #2c5282;
+        }
+
+        .narrative-section h4 {
+            color: #1a3a52;
+            font-size: 1rem;
+            margin-bottom: 0.75rem;
+            font-weight: 600;
+        }
+
+        .narrative-section p {
+            color: #555;
+            line-height: 1.6;
+            font-size: 0.95rem;
+            margin-bottom: 0.75rem;
+        }
+
+        .narrative-section p:last-child {
+            margin-bottom: 0;
+        }
+
+        @media (max-width: 768px) {
+            header h1 {
+                font-size: 1.5rem;
+            }
+
+            header p {
+                font-size: 0.95rem;
+            }
+
+            .container {
+                padding: 1rem;
+            }
+
+            table {
+                font-size: 0.85rem;
+            }
+
+            th, td {
+                padding: 0.75rem 0.5rem;
+            }
+
+            #map {
+                height: 400px;
+            }
+
+            .building-selector {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+
+            .building-selector select {
+                width: 100%;
+                max-width: 100%;
+            }
+        }
+    
+        /* ============= Badge Styles (shared between detail panel and table) ============= */
+        .bp-badge {
+            display: inline-block;
+            padding: 0.25rem 0.6rem;
+            border-radius: 4px;
+            font-size: 0.78rem;
+            font-weight: 600;
+        }
+        .bp-badge-grade { background: #d4edda; color: #155724; }
+        .bp-badge-grade-b { background: #fff3cd; color: #856404; }
+        .bp-badge-grade-c { background: #f8d7da; color: #721c24; }
+        .bp-badge-breeam { background: #d1ecf1; color: #0c5460; }
+        .bp-badge-epc { background: #e2e3e5; color: #383d41; }
+        .bp-badge-subject { background: #d73027; color: white; }
+        .bp-tenant-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: #2c5282;
+            flex-shrink: 0;
+        }
+
+        /* Status badges for availability table */
+        .status-badge {
+            display: inline-block;
+            padding: 0.25rem 0.55rem;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+        .status-fully-let { background: #d4edda; color: #155724; }
+        .status-leasing { background: #cce5ff; color: #004085; }
+        .status-refurb { background: #fff3cd; color: #856404; }
+        .status-pipeline { background: #e2e3e5; color: #383d41; }
+        .status-non-office { background: #f5f5f5; color: #999; }
+
+        /* Clickable building name in table */
+        .building-name-link {
+            color: #2c5282;
+            cursor: pointer;
+            text-decoration: none;
+            font-weight: 500;
+            transition: color 0.15s;
+        }
+        .building-name-link:hover {
+            color: #d73027;
+            text-decoration: underline;
+        }
+
+        /* Availability sqft column */
+        .avail-sqft {
+            font-size: 0.85rem;
+            color: #555;
+        }
+        .avail-sqft-zero {
+            color: #999;
+        }
+
+        /* Availability cards in building profile panel */
+        .bp-avail-card {
+            background: #f0f7ff;
+            border: 1px solid #cce0f5;
+            border-radius: 8px;
+            padding: 0.75rem 1rem;
+            margin-bottom: 0.65rem;
+        }
+        .bp-avail-card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.35rem;
+        }
+        .bp-avail-floor {
+            font-weight: 600;
+            color: #1a3a52;
+            font-size: 0.92rem;
+        }
+        .bp-avail-size {
+            font-weight: 600;
+            color: #2c5282;
+            font-size: 0.88rem;
+        }
+        .bp-avail-details {
+            font-size: 0.82rem;
+            color: #666;
+            line-height: 1.5;
+        }
+        .bp-avail-agent-link {
+            display: inline-block;
+            margin-top: 0.4rem;
+            color: #2c5282;
+            font-weight: 600;
+            font-size: 0.82rem;
+            text-decoration: none;
+        }
+        .bp-avail-agent-link:hover {
+            color: #d73027;
+            text-decoration: underline;
+        }
+        .bp-avail-note {
+            font-size: 0.78rem;
+            color: #888;
+            font-style: italic;
+            margin-top: 0.25rem;
+        }
+        .bp-avail-empty {
+            font-size: 0.85rem;
+            color: #999;
+            font-style: italic;
+            padding: 0.5rem 0;
+        }
+        .bp-avail-page-link {
+            display: inline-block;
+            margin-top: 0.5rem;
+            padding: 0.4rem 0.8rem;
+            background: #2c5282;
+            color: white;
+            border-radius: 5px;
+            font-size: 0.82rem;
+            font-weight: 600;
+            text-decoration: none;
+            transition: background 0.15s;
+        }
+        .bp-avail-page-link:hover {
+            background: #1a3a52;
+        }
+
+        /* Footer */
+        .map-footer {
+            text-align: center;
+            padding: 1.5rem 2rem;
+            margin-top: 2rem;
+            border-top: 1px solid #e0e0e0;
+            font-size: 0.82rem;
+            color: #999;
+            line-height: 1.6;
+        }
+
+    </style>
+</head>
+<body>
+    <header>
+        <h1 id="pageTitle">Commercial Building Competitive Map</h1>
+        <p id="pageSubtitle">Market Analysis & Competitive Landscape</p>
+        <p style="text-align: right; font-size: 0.8rem; margin-top: 0.3rem; opacity: 0.7;" id="updateDate">Exploratory Series by Curious_HY</p>
+    </header>
+
+    <div class="container" id="mainContainer">
+        <!-- Landing page will be inserted here -->
+    </div>
+
+    <script>
+        // Utility Functions
+        function getDistance(lat1, lon1, lat2, lon2) {
+            var R = 6371000; // Earth's radius in meters
+            var dLat = (lat2 - lat1) * Math.PI / 180;
+            var dLon = (lon2 - lon1) * Math.PI / 180;
+            var a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                      Math.sin(dLon / 2) * Math.sin(dLon / 2);
+            var c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+            return Math.round(R * c); // returns meters
+        }
+
+        function classifyVintage(year) {
+            if (!year || isNaN(year)) return 'Unknown';
+            const y = parseInt(year);
+            const now = 2026;
+            const age = now - y;
+            if (age <= 5) return 'New';
+            if (age <= 10) return 'Recent';
+            if (age <= 20) return 'Modern';
+            return 'Established';
+        }
+
+        function formatNLA(nla) {
+            if (!nla) return '—';
+            var num = parseInt(String(nla).replace(/[^0-9]/g, ''), 10);
+            if (isNaN(num) || num === 0) return String(nla);
+            return num.toLocaleString();
+        }
+
+        function parseNLA(nla) {
+            return parseInt(String(nla).replace(/[^0-9]/g, ''), 10) || 0;
+        }
+
+        function classifyBySize(nla) {
+            var size = parseNLA(nla);
+            if (size >= 300000) return 'Trophy Asset';
+            if (size >= 150000) return 'Major';
+            if (size >= 50000) return 'Secondary';
+            return 'Tertiary';
+        }
+
+        function classifySubmarket(lat, lon, submarkets) {
+            if (!submarkets || submarkets.length === 0) return 'Central';
+            for (const submarket of submarkets) {
+                // Method 1: Condition string (e.g. "lon < -2.250 && lat > 53.478")
+                if (submarket.condition) {
+                    try {
+                        if (new Function('lat', 'lon', 'return (' + submarket.condition + ');')(lat, lon)) {
+                            return submarket.name;
+                        }
+                    } catch(e) { /* skip invalid condition */ }
+                    continue;
+                }
+                // Method 2: Bounding box
+                if (submarket.lat_min !== undefined && submarket.lat_max !== undefined &&
+                    submarket.lon_min !== undefined && submarket.lon_max !== undefined) {
+                    if (lat >= submarket.lat_min && lat <= submarket.lat_max &&
+                        lon >= submarket.lon_min && lon <= submarket.lon_max) {
+                        return submarket.name;
+                    }
+                }
+            }
+            // Fallback: return last submarket name (typically the catch-all) or 'Central'
+            return submarkets[submarkets.length - 1]?.name || 'Central';
+        }
+
+        function getOwnerInsight(owner, ownerInsights) {
+            if (!ownerInsights || !owner) return '';
+            // Handle array format: [{match, text}, ...]
+            if (Array.isArray(ownerInsights)) {
+                const match = ownerInsights.find(o => o.match && owner.toLowerCase().includes(o.match.toLowerCase()));
+                return match ? match.text : '';
+            }
+            // Handle object format: {ownerName: text, ...}
+            if (typeof ownerInsights === 'object') {
+                for (const key in ownerInsights) {
+                    if (owner.toLowerCase().includes(key.toLowerCase())) {
+                        return ownerInsights[key];
+                    }
+                }
+            }
+            return '';
+        }
+
+        function toggleSection(headerEl) {
+            const body = headerEl.nextElementSibling;
+            if (!body || !body.classList.contains('section-body')) return;
+
+            const icon = headerEl.querySelector('.collapse-icon');
+            body.classList.toggle('collapsed');
+            if (icon) icon.classList.toggle('collapsed');
+
+            // If reopening a section with a Chart.js canvas, trigger resize
+            if (!body.classList.contains('collapsed')) {
+                const canvas = body.querySelector('canvas');
+                if (canvas) {
+                    setTimeout(() => {
+                        const chartInstance = Chart.getChart(canvas);
+                        if (chartInstance) chartInstance.resize();
+                    }, 400);
+                }
+            }
+        }
+
+        function sortTable(colIdx, sortType) {
+            // Get the table that was clicked
+            const th = event.target.closest('th.sortable');
+            if (!th) return;
+
+            const table = th.closest('table');
+            const tbody = table.querySelector('tbody');
+            const rows = Array.from(tbody.querySelectorAll('tr'));
+
+            // Remove sort classes from all headers
+            table.querySelectorAll('th.sortable').forEach(h => {
+                h.classList.remove('sort-asc', 'sort-desc');
+            });
+
+            // Determine sort direction
+            const isAsc = !th.classList.contains('sort-asc');
+            if (isAsc) {
+                th.classList.add('sort-asc');
+                th.classList.remove('sort-desc');
+            } else {
+                th.classList.add('sort-desc');
+                th.classList.remove('sort-asc');
+            }
+
+            // Sort rows
+            rows.sort((a, b) => {
+                let aVal = a.cells[colIdx]?.textContent.trim() || '';
+                let bVal = b.cells[colIdx]?.textContent.trim() || '';
+
+                if (sortType === 'number') {
+                    aVal = parseFloat(aVal.replace(/[^0-9.-]/g, '')) || 0;
+                    bVal = parseFloat(bVal.replace(/[^0-9.-]/g, '')) || 0;
+                } else if (sortType === 'date') {
+                    aVal = new Date(aVal).getTime() || 0;
+                    bVal = new Date(bVal).getTime() || 0;
+                }
+
+                return isAsc ? (aVal > bVal ? 1 : -1) : (aVal < bVal ? 1 : -1);
+            });
+
+            // Re-append sorted rows
+            rows.forEach(row => tbody.appendChild(row));
+        }
+
+        function generateCompetitivePosition(building, allBuildings, submarkets, ownerInsights) {
+            if (!building) return '';
+
+            // Find all competitors within 500m, sorted by distance
+            const allNearby = allBuildings
+                .filter(b => b.name !== building.name)
+                .map(b => ({
+                    ...b,
+                    distance: getDistance(building.lat, building.lon, b.lat, b.lon)
+                }))
+                .filter(b => b.distance <= 500)
+                .sort((a, b) => a.distance - b.distance);
+            const nearestCompetitors = allNearby.slice(0, 5);
+
+            // Metrics
+            const sizeRank = classifyBySize(building.nla);
+            const submarketName = classifySubmarket(building.lat, building.lon, submarkets);
+            const ownerInsight = getOwnerInsight(building.owner, ownerInsights);
+
+            let html = '<div class="competitive-grid">';
+            html += `<div class="metric-card"><div class="label">Size Rank</div><div class="value">${sizeRank}</div></div>`;
+            html += `<div class="metric-card"><div class="label">Submarket</div><div class="value">${submarketName}</div></div>`;
+            html += `<div class="metric-card"><div class="label">Within 500m</div><div class="value">${allNearby.length}</div></div>`;
+            html += `<div class="metric-card"><div class="label">Owner Type</div><div class="value">${building.owner.length > 20 ? 'Institutional' : 'Private'}</div></div>`;
+            html += '</div>';
+
+            // Nearest competitors table
+            if (nearestCompetitors.length > 0) {
+                html += '<div class="nearest-competitors">';
+                html += `<h4>Closest ${nearestCompetitors.length} Competitors (of ${allNearby.length} within 500m)</h4>`;
+                html += '<table><thead><tr><th>Building</th><th>Distance (m)</th><th>NLA</th><th>Owner</th></tr></thead><tbody>';
+                nearestCompetitors.forEach(comp => {
+                    const compSizeRank = classifyBySize(comp.nla);
+                    html += `<tr>
+                        <td class="building-name">${comp.name}</td>
+                        <td>${Math.round(comp.distance)}m</td>
+                        <td>${formatNLA(comp.nla)} sq ft</td>
+                        <td>${comp.owner}</td>
+                    </tr>`;
+                });
+                html += '</tbody></table>';
+                html += '</div>';
+            }
+
+            // Narrative sections
+            html += '<div class="narrative-section">';
+            html += '<h4>Size & Positioning</h4>';
+            html += `<p>${building.name} (${formatNLA(building.nla)} sq ft, ${building.floors} floors) is classified as a <strong>${sizeRank}</strong> asset in the ${submarketName} submarket. Built in ${building.year}, it competes within the ${classifyVintage(building.year).toLowerCase()} vintage segment.</p>`;
+            html += '</div>';
+
+            if (ownerInsight) {
+                html += '<div class="narrative-section">';
+                html += '<h4>Ownership</h4>';
+                html += `<p>${ownerInsight}</p>`;
+                html += '</div>';
+            }
+
+            html += '<div class="narrative-section">';
+            html += '<h4>Submarket Context</h4>';
+            html += `<p>Located in the ${submarketName} submarket, this building serves a diverse market with mixed-use demand drivers including office, retail, and amenity use.</p>`;
+            html += '</div>';
+
+            if (building.txn) {
+                html += '<div class="narrative-section">';
+                html += '<h4>Transaction History</h4>';
+                html += `<p><strong>Notable Transactions:</strong> ${building.txn}</p>`;
+                html += '</div>';
+            }
+
+            return html;
+        }
+
+        function updateCompetitivePosition(building, data) {
+            const competitiveContent = document.getElementById('competitiveContent');
+            if (!competitiveContent) return;
+
+            const html = generateCompetitivePosition(
+                building,
+                data.keyBuildings,
+                data.submarkets || [],
+                data.ownerInsights || []
+            );
+            competitiveContent.innerHTML = html;
+        }
+
+        function initMap(data) {
+            if (document.getElementById('map').style.display === 'none') return;
+
+            // Initialize map
+            window.map = L.map('map').setView([data.center.lat, data.center.lon], data.zoom);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '© OpenStreetMap contributors',
+                maxZoom: 19
+            }).addTo(window.map);
+
+            // Draw radius circle
+            L.circle([data.center.lat, data.center.lon], {
+                radius: data.mapRadius,
+                color: '#d73027',
+                fill: false,
+                dashArray: '5, 5',
+                weight: 2,
+                opacity: 0.6
+            }).addTo(window.map);
+
+            // Add OSM buildings
+            if (data.osmBuildings && data.osmBuildings.length > 0) {
+                data.osmBuildings.forEach(building => {
+                    const color = getBuildingColor(building.building_type);
+                    L.circleMarker([building.lat, building.lon], {
+                        radius: 4,
+                        fillColor: color,
+                        color: color,
+                        weight: 0,
+                        opacity: 0.7,
+                        fillOpacity: 0.6
+                    }).bindPopup(`<strong>${building.name}</strong><br/>${building.building_type || 'Building'}`).addTo(window.map);
+                });
+            }
+
+            // Add key buildings (all default blue — red highlight only on user selection)
+            window.keyBuildingMarkers = {};
+            data.keyBuildings.forEach(building => {
+                const hasProfile = (data.buildingProfiles && data.buildingProfiles[building.name]);
+                const marker = L.circleMarker([building.lat, building.lon], {
+                    radius: hasProfile ? 11 : 8,
+                    fillColor: hasProfile ? '#2c5282' : '#4575b4',
+                    color: hasProfile ? '#1a3a52' : '#2c5282',
+                    weight: 2,
+                    opacity: 1,
+                    fillOpacity: hasProfile ? 0.85 : 0.7
+                });
+
+                let popupContent = `<strong style="font-size:1.05em;">${building.name}</strong><br/>`;
+                popupContent += `NLA: ${formatNLA(building.nla)} sq ft | Floors: ${building.floors}<br/>`;
+                popupContent += `Owner: ${building.owner}`;
+                // Add availability one-liner from AVAILABILITY_DATA
+                const popupAvail = window.AVAILABILITY_DATA ? (window.AVAILABILITY_DATA.buildings[building.name] || null) : null;
+                if (popupAvail) {
+                    const statusColors = {'Fully Let':'#155724','Leasing':'#004085','Refurb':'#856404','Pipeline':'#383d41','Non-office':'#999'};
+                    const sc = statusColors[popupAvail.status] || '#666';
+                    popupContent += `<br/><span style="color:${sc};font-weight:600;">${popupAvail.status}</span>`;
+                    if (popupAvail.marketedSpaces && popupAvail.marketedSpaces.length > 0) {
+                        popupContent += ` · ${popupAvail.marketedSpaces.length} space${popupAvail.marketedSpaces.length > 1 ? 's' : ''} marketed`;
+                    }
+                }
+                popupContent += `<br/><a href="#" onclick="event.preventDefault(); openBuildingDetail('${building.name.replace(/'/g, "\\'")}');" style="color:#2c5282;font-weight:600;">View Details →</a>`;
+                if (building.buildingWebsite) popupContent += ` | <a href="${building.buildingWebsite}" target="_blank" style="color:#666;">Website</a>`;
+
+                marker.bindPopup(popupContent);
+
+                // Single click: open popup + populate inline detail panel
+                marker.on('click', function() {
+                    openBuildingDetail(building.name);
+                });
+                marker.addTo(window.map);
+                window.keyBuildingMarkers[building.name] = marker;
+            });
+        }
+
+
+        // ============= Inline Detail Panel Functions =============
+
+        // Universal entry point — populates the inline detail panel
+        function openBuildingDetail(buildingName) {
+            var panel = document.getElementById('detailPanel');
+            if (!panel) return;
+            var data = window.SITE_DATA;
+            var building = data.keyBuildings.find(b => b.name === buildingName);
+            if (!building) return;
+
+            var profiles = data.buildingProfiles || {};
+            var p = profiles[buildingName]; // may be undefined
+            var availData = window.AVAILABILITY_DATA ? window.AVAILABILITY_DATA.buildings : {};
+            var ba = availData[buildingName] || {};
+
+            var html = '';
+
+            // Header
+            html += '<div class="dp-header">';
+            html += '<div class="dp-name">' + buildingName + '</div>';
+            if (p && p.address) html += '<div class="dp-address">' + p.address + '</div>';
+            // Badges
+            html += '<div class="dp-badges">';
+            if (p && p.grade) {
+                var gradeClass = 'bp-badge-grade';
+                if (p.grade.startsWith('B') || p.grade === 'B+') gradeClass = 'bp-badge-grade-b';
+                if (p.grade === 'C' || p.grade === 'Redevelopment') gradeClass = 'bp-badge-grade-c';
+                html += '<span class="bp-badge ' + gradeClass + '">Grade ' + p.grade + '</span>';
+            }
+            if (ba.status) {
+                var statusClass = ba.status === 'Fully Let' ? 'status-fully-let' :
+                    ba.status === 'Leasing' ? 'status-leasing' :
+                    ba.status === 'Refurb' ? 'status-refurb' :
+                    ba.status === 'Pipeline' ? 'status-pipeline' :
+                    ba.status === 'Non-office' ? 'status-non-office' : '';
+                html += '<span class="status-badge ' + statusClass + '" style="font-size:0.72rem;padding:0.2rem 0.5rem;">' + ba.status + '</span>';
+            }
+            if (p && p.breeam && p.breeam !== 'N/A' && p.breeam !== 'Unverified') html += '<span class="bp-badge bp-badge-breeam">BREEAM ' + p.breeam + '</span>';
+            if (p && p.epc && p.epc !== 'N/A' && p.epc !== 'Unverified') html += '<span class="bp-badge bp-badge-epc">EPC ' + p.epc + '</span>';
+            html += '</div></div>';
+
+            // Key stats
+            html += '<div class="dp-section"><div class="dp-section-title">Key Statistics</div><div class="dp-stats-grid">';
+            html += '<div class="dp-stat"><div class="dp-stat-label">Size</div><div class="dp-stat-value">' + formatNLA(building.nla) + ' sq ft</div></div>';
+            html += '<div class="dp-stat"><div class="dp-stat-label">Floors</div><div class="dp-stat-value">' + (building.floors || '—') + '</div></div>';
+            html += '<div class="dp-stat"><div class="dp-stat-label">Year</div><div class="dp-stat-value">' + (building.year || '—') + '</div></div>';
+            if (p && p.askingRent) html += '<div class="dp-stat"><div class="dp-stat-label">Rent</div><div class="dp-stat-value">' + p.askingRent + '</div></div>';
+            html += '</div></div>';
+
+            // Owner
+            html += '<div class="dp-section"><div class="dp-section-title">Owner</div>';
+            html += '<div class="dp-owner">' + (building.owner || '—') + '</div>';
+            if (building.txn) html += '<div style="font-size:0.78rem;color:#888;margin-top:0.3rem;">' + building.txn + '</div>';
+            html += '</div>';
+
+            // Tenants (if profile exists)
+            if (p && p.tenants && p.tenants.length > 0) {
+                html += '<div class="dp-section"><div class="dp-section-title">Key Tenants</div><ul class="dp-tenants-list">';
+                p.tenants.forEach(function(t) {
+                    html += '<li><span class="bp-tenant-dot"></span>' + t + '</li>';
+                });
+                html += '</ul></div>';
+            }
+
+            // Availability & Marketed Spaces
+            html += '<div class="dp-section"><div class="dp-section-title">Availability & Marketed Spaces</div>';
+            html += renderAvailabilityHTML(buildingName, ba);
+            html += '</div>';
+
+            // Notes
+            if (p && p.notes) {
+                html += '<div class="dp-section"><div class="dp-section-title">Notes</div>';
+                html += '<div class="dp-notes">' + p.notes + '</div></div>';
+            }
+
+            panel.innerHTML = html;
+
+            // Also highlight on map
+            filterByBuilding(buildingName, data);
+        }
+
+        // Generate availability HTML (returns string, doesn't touch DOM)
+        function renderAvailabilityHTML(buildingName, ba) {
+            var html = '';
+
+            if (!ba || !ba.status) {
+                return '<p class="bp-avail-empty">No availability data tracked for this building.</p>';
+            }
+
+            // Leasing agents summary — deduplicate across all marketed spaces
+            if (ba.marketedSpaces && ba.marketedSpaces.length > 0) {
+                var agentSet = {};
+                ba.marketedSpaces.forEach(function(s) {
+                    if (s.agent) agentSet[s.agent] = true;
+                });
+                var agents = Object.keys(agentSet);
+                if (agents.length > 0) {
+                    html += '<p style="font-size:0.82rem;color:#555;margin-bottom:0.6rem;"><strong>Leasing agent' + (agents.length > 1 ? 's' : '') + ':</strong> ' + agents.join(', ') + '</p>';
+                }
+            }
+
+            // Marketed spaces cards
+            if (ba.marketedSpaces && ba.marketedSpaces.length > 0) {
+                ba.marketedSpaces.forEach(function(space) {
+                    html += '<div class="bp-avail-card">';
+                    html += '<div class="bp-avail-card-header">';
+                    html += '<span class="bp-avail-floor">' + space.floor + '</span>';
+                    html += '<span class="bp-avail-size">' + space.sqft + ' sq ft</span>';
+                    html += '</div>';
+                    html += '<div class="bp-avail-details">';
+                    if (space.condition) html += '<strong>Condition:</strong> ' + space.condition;
+                    if (space.rent && space.rent !== '—') html += ' · <strong>Rent:</strong> ' + space.rent;
+                    html += '<br/><strong>Agent:</strong> ' + (space.agent || '—');
+                    html += '</div>';
+                    if (space.url) {
+                        html += '<a class="bp-avail-agent-link" href="' + space.url + '" target="_blank" rel="noopener">View listing (' + (space.urlSource || space.agent) + ') →</a>';
+                    }
+                    if (space.notes) {
+                        html += '<div class="bp-avail-note">' + space.notes + '</div>';
+                    }
+                    html += '</div>';
+                });
+            } else if (ba.status === 'Fully Let') {
+                html += '<p class="bp-avail-empty">No marketed spaces — building appears fully let.</p>';
+            } else {
+                html += '<p class="bp-avail-empty">No individual spaces data available.</p>';
+            }
+
+            // Availability page link
+            if (ba.availabilityPageUrl) {
+                html += '<a class="bp-avail-page-link" href="' + ba.availabilityPageUrl + '" target="_blank" rel="noopener">View availability page →</a>';
+            }
+
+            // Building-level notes
+            if (ba.notes) {
+                html += '<div class="bp-avail-note" style="margin-top:0.5rem;">' + ba.notes + '</div>';
+            }
+
+            return html;
+        }
+
+        // Legacy stubs — keep for any remaining popup links
+        function openBuildingProfile(name) { openBuildingDetail(name); }
+        function closeBuildingProfile() {}
+
+        function getBuildingColor(buildingType) {
+            if (!buildingType) return '#d2b48c';
+            const type = buildingType.toLowerCase();
+            if (type.includes('office') || type.includes('commercial')) return '#4575b4';
+            if (type.includes('hotel')) return '#228b22';
+            if (type.includes('cultural') || type.includes('museum') || type.includes('theatre')) return '#ff8c00';
+            if (type.includes('government') || type.includes('civic')) return '#a1a1a1';
+            if (type.includes('residential')) return '#add8e6';
+            if (type.includes('retail')) return '#ffff00';
+            if (type.includes('restaurant') || type.includes('cafe')) return '#f59e0b';
+            if (type.includes('education')) return '#9370db';
+            if (type.includes('religious')) return '#ffb6c1';
+            return '#d2b48c';
+        }
+
+        function initChart(chartData) {
+            const ctx = document.getElementById('rentYieldChart');
+            if (!ctx) return;
+
+            new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: chartData.labels,
+                    datasets: [
+                        {
+                            label: chartData.rentLabel || 'Rent (£ psf)',
+                            data: chartData.rents,
+                            backgroundColor: 'rgba(37, 99, 235, 0.7)',
+                            borderColor: 'rgba(37, 99, 235, 1)',
+                            borderWidth: 1,
+                            yAxisID: 'yRent',
+                            order: 2
+                        },
+                        {
+                            label: chartData.yieldLabel || 'Yield (%)',
+                            data: chartData.yields,
+                            type: 'line',
+                            borderColor: '#dc2626',
+                            backgroundColor: 'rgba(220, 38, 38, 0.1)',
+                            pointBackgroundColor: '#dc2626',
+                            pointRadius: 5,
+                            pointHoverRadius: 7,
+                            tension: 0.3,
+                            fill: true,
+                            yAxisID: 'yYield',
+                            order: 1
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: { mode: 'index', intersect: false },
+                    plugins: {
+                        title: {
+                            display: true,
+                            text: chartData.title || 'Market Metrics',
+                            font: { size: 14, weight: 600 },
+                            color: '#1a3a52'
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(ctx) {
+                                    if (ctx.dataset.yAxisID === 'yRent') return ctx.dataset.label + ': £' + ctx.parsed.y.toFixed(2);
+                                    return ctx.dataset.label + ': ' + ctx.parsed.y.toFixed(2) + '%';
+                                }
+                            }
+                        },
+                        legend: { position: 'bottom' }
+                    },
+                    scales: {
+                        yRent: {
+                            type: 'linear',
+                            position: 'left',
+                            title: { display: true, text: chartData.rentLabel || 'Rent (£ per sq ft)', color: '#2563eb' },
+                            min: Math.min(...chartData.rents) - 5,
+                            max: Math.max(...chartData.rents) + 5,
+                            ticks: { color: '#2563eb', callback: function(v) { return '£' + v; } },
+                            grid: { color: 'rgba(37,99,235,0.08)' }
+                        },
+                        yYield: {
+                            type: 'linear',
+                            position: 'right',
+                            title: { display: true, text: chartData.yieldLabel || 'Yield (%)', color: '#dc2626' },
+                            ticks: { color: '#dc2626', callback: function(v) { return v.toFixed(1) + '%'; } },
+                            grid: { drawOnChartArea: false }
+                        },
+                        x: { grid: { display: false } }
+                    }
+                }
+            });
+        }
+
+        function filterByBuilding(buildingName, data) {
+            if (!window.map) return;
+
+            // Reset all markers to default style
+            data.keyBuildings.forEach(b => {
+                const m = window.keyBuildingMarkers[b.name];
+                if (!m) return;
+                const hasProfile = (data.buildingProfiles && data.buildingProfiles[b.name]);
+                m.setStyle({
+                    radius: hasProfile ? 11 : 8,
+                    fillColor: hasProfile ? '#2c5282' : '#4575b4',
+                    color: hasProfile ? '#1a3a52' : '#2c5282',
+                    weight: 2,
+                    fillOpacity: hasProfile ? 0.85 : 0.7
+                });
+                m.setRadius(hasProfile ? 11 : 8);
+            });
+
+            // Highlight selected building in red
+            if (buildingName && window.keyBuildingMarkers[buildingName]) {
+                const m = window.keyBuildingMarkers[buildingName];
+                m.setStyle({
+                    radius: 14,
+                    fillColor: '#d73027',
+                    color: '#a01a1a',
+                    weight: 3,
+                    fillOpacity: 0.9
+                });
+                m.setRadius(14);
+                m.bringToFront();
+            }
+
+            // Update table row highlighting
+            document.querySelectorAll('tbody tr').forEach(row => {
+                row.classList.remove('your-building');
+                if (row.dataset.building === buildingName) {
+                    row.classList.add('your-building');
+                }
+            });
+
+            // Pan and open popup
+            if (buildingName) {
+                const building = data.keyBuildings.find(b => b.name === buildingName);
+                if (building) {
+                    window.map.setView([building.lat, building.lon], data.zoom + 1);
+                    window.keyBuildingMarkers[buildingName].openPopup();
+                    updateCompetitivePosition(building, data);
+                }
+            }
+        }
+
+        function renderSiteDetails(data) {
+            const container = document.getElementById('mainContainer');
+            let html = '';
+
+            // Map section with inline detail panel
+            html += `<div class="map-section">
+                <div class="building-selector">
+                    <label for="buildingSelect">Select Your Building:</label>
+                    <select id="buildingSelect">
+                        <option value="">— None selected —</option>
+                        ${[...data.keyBuildings].sort((a, b) => a.name.localeCompare(b.name)).map(b => `<option value="${b.name}">${b.name}</option>`).join('')}
+                    </select>
+                </div>
+                <div class="map-and-detail">
+                    <div class="map-column">
+                        <div id="map"></div>
+                    </div>
+                    <div class="detail-panel" id="detailPanel">
+                        <div class="detail-panel-empty" id="detailEmpty">
+                            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#bbb" stroke-width="1.5"><path d="M3 21h18M3 7v1a3 3 0 0 0 6 0V7m0 1a3 3 0 0 0 6 0V7m0 1a3 3 0 0 0 6 0V7H3l2-4h14l2 4M5 21V10.87M19 21V10.87"/></svg>
+                            <p><strong>Building Detail</strong><br/>Click a building name in the table or a marker on the map to see details and availability here.</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="legend" style="display:flex;gap:1.5rem;flex-wrap:wrap;align-items:center;padding:0.75rem 1.25rem;">
+                    <span style="font-weight:600;color:#1a3a52;margin-right:0.5rem;">Legend:</span>
+                    <span style="display:flex;align-items:center;gap:6px;"><span style="width:16px;height:16px;border-radius:50%;background:#d73027;display:inline-block;border:1px solid rgba(0,0,0,0.1);"></span> <span id="selectedBuildingLabel" style="font-size:0.88rem;">Selected</span></span>
+                    <span style="display:flex;align-items:center;gap:6px;"><span style="width:14px;height:14px;border-radius:50%;background:#4575b4;display:inline-block;border:1px solid rgba(0,0,0,0.1);"></span> <span style="font-size:0.88rem;">Key Buildings</span></span>
+                    <span style="display:flex;align-items:center;gap:6px;"><span style="width:10px;height:10px;border-radius:50%;background:#d2b48c;display:inline-block;border:1px solid rgba(0,0,0,0.1);"></span> <span style="font-size:0.88rem;">OSM Buildings</span></span>
+                    <span style="display:flex;align-items:center;gap:6px;"><svg width="16" height="16"><circle cx="8" cy="8" r="6" fill="none" stroke="#d73027" stroke-dasharray="2,2" stroke-width="1.5"/></svg> <span style="font-size:0.88rem;">1km Radius</span></span>
+                </div>
+            </div>`;
+
+            // Market Analysis section
+            html += `<div class="notes-section">
+                <div class="section-header" onclick="toggleSection(this)">
+                    <div class="notes-title" style="margin-bottom:0;">Market Analysis & Key Insights</div>
+                    <span class="collapse-icon">▼</span>
+                </div>
+                <div class="section-body notes-content">`;
+
+            if (data.marketInsights) {
+                const renderInsightSection = (title, items, marginTop) => {
+                    if (!items || items.length === 0) return '';
+                    const style = marginTop ? ' style="margin-top:1rem;"' : '';
+                    let s = `<p${style}><strong>${title}</strong></p><ul>`;
+                    items.forEach(item => {
+                        if (typeof item === 'object' && item.label) {
+                            s += `<li><strong>${item.label}:</strong> ${item.text}</li>`;
+                        } else {
+                            s += `<li>${item}</li>`;
+                        }
+                    });
+                    return s + `</ul>`;
+                };
+                html += renderInsightSection('Occupational Market', data.marketInsights.occupational, false);
+                html += renderInsightSection('Investment Market', data.marketInsights.investment, true);
+                html += renderInsightSection('Supply Pipeline', data.marketInsights.supplyPipeline, true);
+                html += renderInsightSection('Micromarket Context', data.marketInsights.micromarket, true);
+            }
+
+            html += `<div id="competitivePosition" style="margin-top:1rem;padding:1rem;background:#f0f7ff;border-radius:6px;border:1px solid #bfdbfe;">
+                <p style="margin:0 0 0.5rem;color:#1a3a52;font-weight:700;font-size:1rem;">Selected Building — Competitive Position</p>
+                <p id="competitiveContent" style="color:#64748b;font-style:italic;margin:0;">Select a building from the dropdown above to see its competitive position analysis.</p>
+            </div>`;
+
+            if (data.dataSources && data.dataSources.length > 0) {
+                html += `<p style="margin-top:1rem;"><strong>Data Sources</strong></p><ul>`;
+                data.dataSources.forEach(source => {
+                    html += `<li>${source}</li>`;
+                });
+                html += `</ul>`;
+            }
+
+            html += `</div></div>`;
+
+            // Chart section
+            if (data.chartData) {
+                html += `<div class="tables-section">
+                    <div class="section-header" onclick="toggleSection(this)">
+                        <h2 class="table-title" style="color: #1e40af;margin-bottom:0;">${data.chartData.title || 'Market Metrics'}</h2>
+                        <span class="collapse-icon">▼</span>
+                    </div>
+                    <div class="section-body">
+                        <div style="position:relative;height:320px;max-height:320px;">
+                            <canvas id="rentYieldChart"></canvas>
+                        </div>
+                        <p style="margin-top:0.75rem;font-size:0.85rem;color:#888;">Source: <a href="https://www.savills.co.uk/research_articles/229130/382566-0" target="_blank" style="color:#2c5282;">Savills Manchester Office Spotlight Autumn 2025</a> | <a href="https://www.cre-insider.com/post/manchester-office-market-outlook-2026" target="_blank" style="color:#2c5282;">CBRE Manchester Office Outlook 2026</a> | <a href="https://www.oktra.co.uk/insights/the-cost-of-office-space-in-manchester-2026/" target="_blank" style="color:#2c5282;">Oktra Manchester Office Costs 2026</a>. 2026F–2027F are forecasts.</p>
+                    </div>
+                </div>`;
+            }
+
+            // Leasing activity table
+            if (data.leasingActivity && data.leasingActivity.length > 0) {
+                html += `<div class="tables-section">
+                    <div class="section-header" onclick="toggleSection(this)">
+                        <h2 class="table-title" style="color: #b45309;margin-bottom:0;">Leasing Activity</h2>
+                        <span class="collapse-icon">▼</span>
+                    </div>
+                    <div class="section-body">
+                        <table id="leasingTable">
+                            <thead>
+                                <tr>
+                                    <th class="sortable" onclick="sortTable(0, 'string')">Building</th>
+                                    <th class="sortable" onclick="sortTable(1, 'string')">Tenant</th>
+                                    <th class="sortable" onclick="sortTable(2, 'number')">Area (sq ft)</th>
+                                    <th class="sortable" onclick="sortTable(3, 'string')">Rent</th>
+                                    <th class="sortable" onclick="sortTable(4, 'date')">Date</th>
+                                    <th>Notes</th>
+                                </tr>
+                            </thead>
+                            <tbody>`;
+                data.leasingActivity.forEach(item => {
+                    html += `<tr data-building="${item.building}">
+                        <td class="building-name">${item.building}</td>
+                        <td>${item.tenant}</td>
+                        <td>${item.area || '—'}</td>
+                        <td>${item.rent || '—'}</td>
+                        <td>${item.date}</td>
+                        <td>${item.notes || ''}</td>
+                    </tr>`;
+                });
+                html += `</tbody></table></div></div>`;
+            }
+
+            // Submarket rent table
+            if (data.submarketRentTable) {
+                html += `<div class="tables-section">
+                    <div class="section-header" onclick="toggleSection(this)">
+                        <h2 class="table-title" style="color: #059669;margin-bottom:0;">Submarket Rent Ranges</h2>
+                        <span class="collapse-icon">▼</span>
+                    </div>
+                    <div class="section-body">
+                        <table>
+                            <thead>
+                                <tr>`;
+                data.submarketRentTable.headers.forEach(header => {
+                    html += `<th>${header}</th>`;
+                });
+                html += `</tr></thead><tbody>`;
+                data.submarketRentTable.rows.forEach(row => {
+                    html += `<tr>`;
+                    row.forEach(cell => {
+                        html += `<td>${cell}</td>`;
+                    });
+                    html += `</tr>`;
+                });
+                html += `</tbody></table>`;
+                if (data.submarketRentTable.source) {
+                    html += `<p style="margin-top:0.75rem;font-size:0.85rem;color:#888;"><strong>Source:</strong> ${data.submarketRentTable.source}</p>`;
+                }
+                html += `</div></div>`;
+            }
+
+            // Buildings table — derives status & availability from AVAILABILITY_DATA
+            const avail = window.AVAILABILITY_DATA ? window.AVAILABILITY_DATA.buildings : {};
+            html += `<div class="tables-section">
+                <div class="section-header" onclick="toggleSection(this)">
+                    <h2 class="table-title" style="margin-bottom:0;">Building Inventory — All Mapped Buildings</h2>
+                    <span class="collapse-icon">▼</span>
+                </div>
+                <div class="section-body">
+                    <table id="buildingsTable">
+                        <thead>
+                            <tr>
+                                <th class="sortable" onclick="sortTable(0, 'string')">Building Name</th>
+                                <th class="sortable" onclick="sortTable(1, 'number')">Size (sq ft)</th>
+                                <th class="sortable" onclick="sortTable(2, 'string')">Year</th>
+                                <th class="sortable" onclick="sortTable(3, 'string')">Owner</th>
+                                <th class="sortable" onclick="sortTable(4, 'string')">Status</th>
+                                <th>Marketed Spaces</th>
+                                <th>Agent(s)</th>
+                            </tr>
+                        </thead>
+                        <tbody>`;
+
+            [...data.keyBuildings].sort((a, b) => a.name.localeCompare(b.name)).forEach(building => {
+                const ba = avail[building.name] || {};
+                const status = ba.status || '—';
+                const statusClass = status === 'Fully Let' ? 'status-fully-let' :
+                    status === 'Leasing' ? 'status-leasing' :
+                    status === 'Refurb' ? 'status-refurb' :
+                    status === 'Pipeline' ? 'status-pipeline' :
+                    status === 'Non-office' ? 'status-non-office' : '';
+
+                // Per-floor breakdown of marketed spaces
+                let spacesDisplay = '—';
+                if (ba.marketedSpaces && ba.marketedSpaces.length > 0) {
+                    spacesDisplay = ba.marketedSpaces.map(s =>
+                        '<span style="white-space:nowrap;">' + s.floor + ' · ' + s.sqft + ' sq ft</span>'
+                    ).join('<br/>');
+                }
+
+                // Deduplicated agents
+                let agentsDisplay = '—';
+                if (ba.marketedSpaces && ba.marketedSpaces.length > 0) {
+                    const agentSet = {};
+                    ba.marketedSpaces.forEach(s => { if (s.agent) agentSet[s.agent] = true; });
+                    const agents = Object.keys(agentSet);
+                    if (agents.length > 0) agentsDisplay = agents.join(', ');
+                }
+
+                html += `<tr data-building="${building.name}">
+                    <td><a class="building-name-link" onclick="openBuildingDetail('${building.name.replace(/'/g, "\\'")}')">${building.name}</a></td>
+                    <td>${formatNLA(building.nla)} sq ft</td>
+                    <td>${building.year}</td>
+                    <td>${building.owner}</td>
+                    <td><span class="status-badge ${statusClass}">${status}</span></td>
+                    <td style="font-size:0.82rem;line-height:1.5;color:#555;">${spacesDisplay}</td>
+                    <td style="font-size:0.82rem;color:#555;">${agentsDisplay}</td>
+                </tr>`;
+            });
+
+            html += `</tbody></table>`;
+            if (window.AVAILABILITY_DATA) {
+                html += `<p style="margin-top:0.6rem;font-size:0.78rem;color:#aaa;">Availability data last verified: ${window.AVAILABILITY_DATA.lastVerified}. Status and available sq ft derived from marketed listings — actual vacancy may differ.</p>`;
+            }
+            html += `</div></div>`;
+
+            // Footer
+            html += `<div class="map-footer">`;
+            html += `Spinningfields & Deansgate Competitive Map · Exploratory Series by Curious_HY<br/>`;
+            html += `Building data compiled from public sources. `;
+            if (window.AVAILABILITY_DATA) {
+                html += `Availability data last verified: <strong>${window.AVAILABILITY_DATA.lastVerified}</strong>. `;
+            }
+            html += `Marketed spaces and status reflect agent listings at time of verification — actual availability may differ.`;
+            html += `</div>`;
+
+            container.innerHTML = html;
+
+            // Initialize map, chart, and event listeners
+            initMap(data);
+            if (data.chartData) {
+                initChart(data.chartData);
+            }
+
+            const buildingSelect = document.getElementById('buildingSelect');
+            if (buildingSelect) {
+                buildingSelect.addEventListener('change', (e) => {
+                    filterByBuilding(e.target.value, data);
+                    if (e.target.value) {
+                        document.getElementById('selectedBuildingLabel').innerHTML = `<strong>Your Building:</strong> ${e.target.value}`;
+                    } else {
+                        document.getElementById('selectedBuildingLabel').innerHTML = '<strong>Your Building:</strong> <em>None selected</em>';
+                    }
+                });
+            }
+        }
+
+        function renderLandingPage(sites, siteCounts) {
+            var container = document.getElementById('mainContainer');
+            var html = '<div class="landing-container">';
+
+            sites.forEach(function(siteId) {
+                var meta = SITE_META[siteId] || {};
+                var count = siteCounts[siteId] || meta.buildings || 0;
+                var title = meta.title || siteId.charAt(0).toUpperCase() + siteId.slice(1);
+                var desc = meta.desc || 'Commercial competitive landscape analysis';
+                html += '<div class="site-card" onclick="window.location.href=\'?site=' + siteId + '\'">' +
+                    '<h2>' + title + '</h2>' +
+                    '<p>' + desc + '</p>' +
+                    '<div class="building-count">' + count + ' buildings mapped</div>' +
+                '</div>';
+            });
+
+            html += '</div>';
+            container.innerHTML = html;
+        }
+
+// === SITE DATA loaded from external file (spinningfields_data.js) ===
+
+        // Main initialization (standalone — skip landing page, load data directly)
+        document.addEventListener('DOMContentLoaded', function() {
+            var data = window.SITE_DATA;
+            if (!data) { document.getElementById('mainContainer').innerHTML = '<p>Error: Site data not found.</p>'; return; }
+
+            // Update header
+            document.getElementById('pageTitle').textContent = data.title || 'Competitive Map';
+            document.getElementById('pageSubtitle').textContent = data.subtitle || 'Exploratory Series by Curious_HY';
+
+            // Render site details
+            renderSiteDetails(data);
+        });
+    </script>
+
+    <!-- Detail panel is now inline beside the map (rendered by renderSiteDetails) -->
+
+</body>
+</html>
