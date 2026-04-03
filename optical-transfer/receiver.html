@@ -921,7 +921,8 @@ async function processFrame(imgData, w, h) {
     const frameBytes = Math.floor(dataCells / 4);
     // Try multiple ECC% values so the receiver works regardless of what the
     // transmitter is configured to — user can freely change ECC% slider.
-    const eccProbes = [20, 30, 40, 15, 25, 10, 50];
+    // Cover every 5% step so any transmitter setting is found immediately.
+    const eccProbes = [20, 25, 30, 35, 40, 15, 45, 10, 50, 5];
     let result = null, usedEcc = 20;
     for (const eccPct of eccProbes) {
       const eb = Math.max(2, Math.floor(frameBytes * eccPct / 100));
@@ -990,11 +991,28 @@ async function processFrame(imgData, w, h) {
   rsOk++;
 
   if (result.type === 0x00) {
-    // Config frame during decoding — check if transmitter file changed
+    // Config frame during decoding — check if settings or file changed
     const newCfg = parseConfig(result.payload);
-    if (newCfg && newCfg.sha256 !== cfg.sha256) {
-      elErr.textContent = '\u26A0 Transmitter file changed! Tap Reset to start over.';
-      elDetail.innerHTML += '<div class="row"><span class="warn">File on transmitter changed — data is stale</span></div>';
+    if (newCfg) {
+      const settingsChanged = newCfg.ecc_percent !== cfg.ecc_percent ||
+                             newCfg.grid_size   !== cfg.grid_size;
+      const fileChanged = newCfg.sha256 !== cfg.sha256;
+      if (settingsChanged || fileChanged) {
+        // Settings or file changed — restart automatically with new config
+        elErr.textContent = settingsChanged
+          ? '\u26A0 Transmitter settings changed — restarting with new config...'
+          : '\u26A0 Transmitter file changed — restarting...';
+        // Re-initialise with new config immediately
+        cfg = newCfg;
+        lastConfigHash = cfg.sha256;
+        decoder = new FountainDecoder(cfg.K, cfg.block_size);
+        decoder.setCdf(robustSolitonCdf(cfg.K));
+        rsOk = 0; rsFail = 0; t0 = Date.now();
+        downloadFilename = cfg.filename || 'file';
+        updateUI();
+        setTimeout(() => { elErr.textContent = ''; }, 3000);
+        return;
+      }
     }
   } else if (result.type === 0x01) {
     decoder.addSymbol(result.index, result.payload.slice(0, cfg.block_size));
