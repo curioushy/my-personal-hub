@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Optical Transfer — Transmitter</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;overflow:hidden}
+body{background:#000;color:#eee;font-family:-apple-system,system-ui,monospace;display:flex}
+
+/* ── Left panel: controls ── */
+#left{
+  width:320px;min-width:260px;max-width:380px;
+  background:#111;padding:16px;overflow-y:auto;
+  display:flex;flex-direction:column;gap:10px;
+  border-right:1px solid #222;
+}
+#left h1{font-size:1.1em;color:#7cf;text-align:center}
+#drop-zone{
+  padding:24px 12px;border:2px dashed #444;border-radius:8px;
+  text-align:center;cursor:pointer;transition:all .2s;
+}
+#drop-zone.hover{border-color:#7cf;background:rgba(100,180,255,.06)}
+#drop-zone h2{font-size:.9em;color:#aaa;margin-bottom:4px}
+#drop-zone p{font-size:.7em;color:#555}
+#file-input{display:none}
+
+.info-row{display:flex;gap:6px;flex-wrap:wrap}
+.ib{background:#1a1a2a;border-radius:4px;padding:5px 8px;flex:1;min-width:70px;text-align:center}
+.ib .l{font-size:.55em;color:#666;text-transform:uppercase;letter-spacing:.5px}
+.ib .v{font-size:.8em;color:#ddd;margin-top:1px}
+
+#settings{display:none}
+#settings h3{font-size:.8em;color:#7cf;margin-bottom:6px}
+.s-row{display:flex;align-items:center;gap:6px;margin-bottom:5px;font-size:.75em;color:#bbb}
+.s-row label{min-width:60px;font-size:.7em}
+.s-row input[type=range]{flex:1}
+.s-row .val{min-width:42px;color:#7cf;text-align:right;font-size:.7em}
+
+#btn-row{display:flex;gap:6px;flex-wrap:wrap}
+button{
+  background:#3a7cd5;border:none;color:#fff;padding:7px 14px;border-radius:4px;
+  cursor:pointer;font-size:.8em;font-family:inherit;flex:1;min-width:60px;
+}
+button:hover{background:#5a9cf5}
+button:disabled{background:#222;color:#555;cursor:default}
+#btn-reset{background:#666}
+#btn-stop{background:#c44}
+
+#phase{font-size:1em;font-weight:bold;color:#7cf;text-align:center;letter-spacing:2px}
+#prog-wrap{background:#222;border-radius:3px;height:6px;overflow:hidden}
+#prog-bar{height:100%;background:#3a7cd5;width:0%;transition:width .15s}
+#stats{font-size:.65em;color:#666;text-align:center;min-height:2em;line-height:1.4}
+#enc-status{font-size:.7em;color:#888;text-align:center}
+
+/* ── Right panel: canvas ── */
+#right{
+  flex:1;background:#000;display:flex;align-items:center;justify-content:center;
+  min-width:400px;
+}
+canvas{image-rendering:pixelated;image-rendering:crisp-edges;display:block}
+</style>
+</head>
+<body>
+
+<!-- ═══ LEFT PANEL ═══ -->
+<div id="left">
+  <h1>Optical Transfer</h1>
+
+  <div id="drop-zone">
+    <h2>Drop a file here</h2>
+    <p>or click to browse</p>
+  </div>
+  <input type="file" id="file-input">
+
+  <div class="info-row" id="info" style="display:none">
+    <div class="ib"><div class="l">File</div><div class="v" id="i-file">-</div></div>
+    <div class="ib"><div class="l">Size</div><div class="v" id="i-size">-</div></div>
+    <div class="ib"><div class="l">Compressed</div><div class="v" id="i-comp">-</div></div>
+  </div>
+  <div class="info-row" id="info2" style="display:none">
+    <div class="ib"><div class="l">K</div><div class="v" id="i-k">-</div></div>
+    <div class="ib"><div class="l">Payload</div><div class="v" id="i-pay">-</div></div>
+    <div class="ib"><div class="l">Est.</div><div class="v" id="i-time">-</div></div>
+  </div>
+
+  <div id="settings">
+    <h3>Settings</h3>
+    <div class="s-row"><label>Grid</label><input type="range" id="s-grid" min="16" max="48" step="4" value="24"><span class="val" id="v-grid">24</span></div>
+    <div class="s-row"><label>FPS</label><input type="range" id="s-fps" min="1" max="30" step="1" value="15"><span class="val" id="v-fps">15</span></div>
+    <div class="s-row"><label>ECC%</label><input type="range" id="s-ecc" min="5" max="50" step="5" value="20"><span class="val" id="v-ecc">20</span></div>
+    <div class="s-row"><label>Extra</label><input type="range" id="s-over" min="1.1" max="3.0" step="0.1" value="1.5"><span class="val" id="v-over">1.5x</span></div>
+  </div>
+
+  <div id="btn-row">
+    <button id="btn-start" disabled>&#9654; Start</button>
+    <button id="btn-pause" disabled>&#9208; Pause</button>
+    <button id="btn-stop" disabled>&#9209; Stop</button>
+    <button id="btn-reset" disabled>&#8634; Reset</button>
+  </div>
+
+  <div id="phase"></div>
+  <div id="prog-wrap"><div id="prog-bar"></div></div>
+  <div id="stats"></div>
+  <div id="enc-status"></div>
+</div>
+
+<!-- ═══ RIGHT PANEL: pure black + canvas ═══ -->
+<div id="right">
+  <canvas id="c"></canvas>
+</div>
+
+<script>
+'use strict';
+
+// ═══════════════════════════════════════════════════════════════════════════
+// GF(256) + RS Encoder + xorshift32 + Soliton + LT — same as before
+// ═══════════════════════════════════════════════════════════════════════════
+const PRIM=0x11D,gfExp=new Uint8Array(512),gfLog=new Uint8Array(256);
+{let x=1;for(let i=0;i<255;i++){gfExp[i]=x;gfLog[x]=i;x<<=1;if(x&0x100)x^=PRIM;x&=0xFF;}for(let i=255;i<512;i++)gfExp[i]=gfExp[i-255];}
+function gfMul(a,b){if(a===0||b===0)return 0;return gfExp[(gfLog[a]+gfLog[b])%255];}
+
+function rsGenPoly(n){let g=new Uint8Array([1]);for(let i=0;i<n;i++){const f=new Uint8Array([1,gfExp[i]]);const r=new Uint8Array(g.length+1);for(let j=0;j<g.length;j++)for(let k=0;k<f.length;k++)r[j+k]^=gfMul(g[j],f[k]);g=r;}return g;}
+const gpCache={};
+function rsEncode(data,nsym){if(!gpCache[nsym])gpCache[nsym]=rsGenPoly(nsym);const gen=gpCache[nsym];const n=data.length+nsym;const fb=new Uint8Array(n);fb.set(data);for(let i=0;i<data.length;i++){const c=fb[i];if(c!==0)for(let j=1;j<gen.length;j++)fb[i+j]^=gfMul(gen[j],c);}const r=new Uint8Array(n);r.set(data);for(let i=0;i<nsym;i++)r[data.length+i]=fb[data.length+i];return r;}
+
+function xorshift32(s){if(s===0)s=1;s^=(s<<13);s=s>>>0;s^=(s>>>17);s^=(s<<5);s=s>>>0;return s;}
+
+function robustSolitonCdf(K){const c=.1,d=.5;if(K<=1)return[{degree:1,cum:1}];const rho=new Float64Array(K+1);rho[1]=1/K;for(let i=2;i<=K;i++)rho[i]=1/(i*(i-1));let S=c*Math.log(K/d)*Math.sqrt(K);S=Math.max(S,1);const piv=Math.max(1,Math.round(K/S));const tau=new Float64Array(K+1);for(let i=1;i<piv&&i<=K;i++)tau[i]=S/(i*K);if(piv<=K)tau[piv]=S*Math.log(S/d)/K;let tot=0;for(let i=1;i<=K;i++)tot+=rho[i]+tau[i];const cdf=[];let cm=0;for(let dd=1;dd<=K;dd++){const p=(rho[dd]+tau[dd])/tot;if(p>1e-10){cm+=p;cdf.push({degree:dd,cum:Math.min(cm,1)});}}if(cdf.length)cdf[cdf.length-1].cum=1;return cdf;}
+
+function generateSymbol(i,K,blocks,bs,cdf){let st=xorshift32((Math.imul(i+1,2654435761))>>>0);const r=st/0xFFFFFFFF;let deg=1;for(const e of cdf){if(r<=e.cum){deg=e.degree;break;}}deg=Math.min(deg,K);let seed=((Math.imul(i+1,1103515245)+12345)>>>0);if(seed===0)seed=1;const sel=new Set();let s2=seed,att=0;while(sel.size<deg&&att<deg*10){s2=xorshift32(s2);sel.add(s2%K);att++;}const sym=new Uint8Array(bs);for(const idx of sel){const blk=blocks[idx];for(let j=0;j<bs;j++)sym[j]^=blk[j];}return sym;}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Frame Parameters + Grid Layout
+// ═══════════════════════════════════════════════════════════════════════════
+function computeParams(N,ecc){const dc=N*N-36,fb=Math.floor(dc/4),eb=Math.max(2,Math.floor(fb*ecc/100));let nb,tp,ep,dp;if(fb<=255){nb=1;tp=fb;ep=eb;dp=fb-eb;}else{nb=Math.ceil(fb/255);tp=Math.floor(fb/nb);ep=Math.floor(eb/nb);dp=tp-ep;}return{fb,nb,tp,ep,dp,pay:dp*nb-4};}
+
+const DC=[[0,0,0],[255,0,0],[0,255,0],[0,0,255]];
+const MK={TL:[0,255,255],TR:[255,0,255],BL:[255,255,0],BR:[255,255,255]};
+function isMk(r,c,N){const m=3;if(r<m&&c<m)return'TL';if(r<m&&c>=N-m)return'TR';if(r>=N-m&&c<m)return'BL';if(r>=N-m&&c>=N-m)return'BR';return null;}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Frame building + rendering (with BLACK PADDING around grid)
+// ═══════════════════════════════════════════════════════════════════════════
+const PAD = 4; // cells of black padding on each side
+
+function buildFrameRaw(type,idx,payload,p){
+  const td=p.dp*p.nb;const raw=new Uint8Array(td);
+  raw[0]=type;raw[1]=(idx>>16)&0xFF;raw[2]=(idx>>8)&0xFF;raw[3]=idx&0xFF;
+  if(payload)raw.set(payload.subarray(0,Math.min(payload.length,td-4)),4);
+  return raw;
+}
+function rsEncodeFrame(raw,p){
+  const enc=new Uint8Array(p.nb*p.tp);
+  for(let b=0;b<p.nb;b++)enc.set(rsEncode(raw.slice(b*p.dp,(b+1)*p.dp),p.ep),b*p.tp);
+  return enc;
+}
+
+function renderFrame(ctx,frameEnc,N,cellPx){
+  const totalSize = (N + PAD*2) * cellPx;
+  // Black background (padding)
+  ctx.fillStyle='#000';
+  ctx.fillRect(0,0,totalSize,totalSize);
+
+  // Unpack RS bytes → 2-bit cells
+  const cells=new Uint8Array(frameEnc.length*4);
+  for(let i=0;i<frameEnc.length;i++){
+    cells[i*4]=(frameEnc[i]>>6)&3;cells[i*4+1]=(frameEnc[i]>>4)&3;
+    cells[i*4+2]=(frameEnc[i]>>2)&3;cells[i*4+3]=frameEnc[i]&3;
+  }
+
+  // Draw grid offset by padding
+  const ox = PAD * cellPx, oy = PAD * cellPx;
+  let ci=0;
+  for(let row=0;row<N;row++){
+    for(let col=0;col<N;col++){
+      const m=isMk(row,col,N);
+      const [r,g,b]=m?MK[m]:DC[ci<cells.length?cells[ci]:0];
+      if(!m)ci++;
+      ctx.fillStyle=`rgb(${r},${g},${b})`;
+      ctx.fillRect(ox+col*cellPx,oy+row*cellPx,cellPx,cellPx);
+    }
+  }
+}
+
+async function sha256(data){return new Uint8Array(await crypto.subtle.digest('SHA-256',data));}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// File handling
+// ═══════════════════════════════════════════════════════════════════════════
+let fileState=null;
+
+async function prepareFile(file){
+  const raw=new Uint8Array(await file.arrayBuffer());
+  const h=await sha256(raw);
+  let comp;try{comp=pako.deflate(raw,{level:9});}catch(e){comp=raw;}
+  let data,isComp;
+  if(comp.length<raw.length){data=new Uint8Array(1+comp.length);data[0]=1;data.set(comp,1);isComp=true;}
+  else{data=new Uint8Array(1+raw.length);data[0]=0;data.set(raw,1);isComp=false;}
+  return{raw,fn:file.name,fs:raw.length,sha:h,data,isComp,compSz:comp.length};
+}
+
+function buildBlocks(data,bs){const K=Math.ceil(data.length/bs);const p=new Uint8Array(K*bs);p.set(data);const blocks=[];for(let i=0;i<K;i++)blocks.push(p.slice(i*bs,(i+1)*bs));return{K,blocks};}
+
+function buildConfigPayload(c){
+  const maxFn=Math.max(0,c.bs-46);const fn=new TextEncoder().encode(c.fn).slice(0,maxFn);
+  const p=new Uint8Array(46+fn.length);p[0]=c.N;p[1]=4;p[2]=c.fps;p[3]=c.ecc;
+  new DataView(p.buffer).setUint32(4,c.fs,false);new DataView(p.buffer).setUint16(8,c.K,false);
+  new DataView(p.buffer).setUint16(10,c.bs,false);p.set(c.sha,12);p[44]=c.isComp?1:0;p[45]=fn.length;p.set(fn,46);return p;
+}
+function buildEndPayload(sha,total){const p=new Uint8Array(36);p.set(sha);new DataView(p.buffer).setUint32(32,total,false);return p;}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Transmission engine
+// ═══════════════════════════════════════════════════════════════════════════
+let tx=null;
+
+function initTx(){
+  const N=+$('s-grid').value,fps=+$('s-fps').value,ecc=+$('s-ecc').value,over=+$('s-over').value;
+  const p=computeParams(N,ecc);
+  if(p.pay<=0){$('enc-status').textContent='Grid too small for this ECC.';return null;}
+  const{K,blocks}=buildBlocks(fileState.data,p.pay);
+  const cdf=robustSolitonCdf(K);const nSym=Math.max(K+10,Math.floor(K*over));
+  const cfgP=buildConfigPayload({N,fps,ecc,fs:fileState.fs,K,bs:p.pay,sha:fileState.sha,isComp:fileState.isComp,fn:fileState.fn});
+  const endP=buildEndPayload(fileState.sha,nSym);
+  return{N,fps,p,bs:p.pay,K,blocks,cdf,nSym,cfgP,endP,cfgCnt:fps,dataCnt:nSym,endCnt:fps,total:fps+nSym+fps};
+}
+
+function genFrame(tx,idx){
+  const{p,cfgP,endP,K,blocks,bs,cdf,cfgCnt,dataCnt}=tx;
+  let raw;
+  if(idx<cfgCnt)raw=buildFrameRaw(0x00,0,cfgP,p);
+  else if(idx<cfgCnt+dataCnt){const si=idx-cfgCnt;raw=buildFrameRaw(0x01,si,generateSymbol(si,K,blocks,bs,cdf),p);}
+  else raw=buildFrameRaw(0xFF,0xFFFFFF,endP,p);
+  return rsEncodeFrame(raw,p);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// UI
+// ═══════════════════════════════════════════════════════════════════════════
+const canvas=document.getElementById('c'),ctx=canvas.getContext('2d');
+let timer=null,running=false,paused=false,fi=0,loops=0,t0=0;
+
+function $(id){return document.getElementById(id);}
+function fmtB(b){if(b<1024)return b+' B';if(b<1048576)return(b/1024).toFixed(1)+' KB';return(b/1048576).toFixed(2)+' MB';}
+
+function sizeCanvas(){
+  if(!tx&&!fileState)return;
+  const N=tx?tx.N:+$('s-grid').value;
+  const rw=document.getElementById('right');
+  const avail=Math.min(rw.clientWidth,rw.clientHeight)-20;
+  const totalCells=N+PAD*2;
+  const cellPx=Math.max(2,Math.floor(avail/totalCells));
+  canvas.width=cellPx*totalCells;canvas.height=cellPx*totalCells;
+  return cellPx;
+}
+
+function updateEstimates(){
+  if(!fileState)return;
+  const N=+$('s-grid').value,fps=+$('s-fps').value,ecc=+$('s-ecc').value,over=+$('s-over').value;
+  const p=computeParams(N,ecc);
+  if(p.pay<=0){$('i-k').textContent='ERR';$('i-time').textContent='-';$('i-pay').textContent='-';return;}
+  const K=Math.ceil(fileState.data.length/p.pay);
+  const nSym=Math.max(K+10,Math.floor(K*over));
+  $('i-k').textContent=K;
+  $('i-pay').textContent=p.pay+'B';
+  $('i-time').textContent=((fps+nSym+fps)/fps).toFixed(0)+'s';
+}
+
+// Settings sliders
+for(const[id,fmt]of[['s-grid',v=>v],['s-fps',v=>v],['s-ecc',v=>v],['s-over',v=>v+'x']]){
+  const el=$(id);el.oninput=()=>{$('v-'+id.slice(2)).textContent=fmt(el.value);updateEstimates();previewGrid();};
+}
+
+function previewGrid(){
+  if(!fileState)return;
+  const N=+$('s-grid').value;
+  const cellPx=sizeCanvas();if(!cellPx)return;
+  ctx.fillStyle='#000';ctx.fillRect(0,0,canvas.width,canvas.height);
+  const ox=PAD*cellPx,oy=PAD*cellPx;
+  for(let r=0;r<N;r++)for(let c=0;c<N;c++){
+    const m=isMk(r,c,N);
+    if(m){const[R,G,B]=MK[m];ctx.fillStyle=`rgb(${R},${G},${B})`;ctx.fillRect(ox+c*cellPx,oy+r*cellPx,cellPx,cellPx);}
+  }
+}
+
+// File loading
+const dz=$('drop-zone'),fi_=$('file-input');
+dz.onclick=()=>fi_.click();
+dz.ondragover=e=>{e.preventDefault();dz.classList.add('hover');};
+dz.ondragleave=()=>dz.classList.remove('hover');
+dz.ondrop=async e=>{e.preventDefault();dz.classList.remove('hover');if(e.dataTransfer.files.length)await loadFile(e.dataTransfer.files[0]);};
+fi_.onchange=async()=>{if(fi_.files.length)await loadFile(fi_.files[0]);};
+
+async function loadFile(file){
+  $('enc-status').textContent='Reading...';
+  fileState=await prepareFile(file);
+  $('enc-status').textContent='';
+  $('i-file').textContent=fileState.fn.length>14?fileState.fn.slice(0,12)+'...':fileState.fn;
+  $('i-size').textContent=fmtB(fileState.fs);
+  $('i-comp').textContent=fileState.isComp?fmtB(fileState.compSz)+' ('+Math.round(fileState.compSz/fileState.fs*100)+'%)':'no';
+  $('info').style.display='flex';$('info2').style.display='flex';
+  $('settings').style.display='block';
+  $('btn-start').disabled=false;$('btn-reset').disabled=false;
+  updateEstimates();
+  dz.innerHTML='<h2>'+fileState.fn+'</h2><p>'+fmtB(fileState.fs)+'</p>';
+  previewGrid();
+}
+
+// Buttons
+$('btn-start').onclick=()=>{
+  if(!fileState||running)return;
+  tx=initTx();if(!tx)return;
+  running=true;paused=false;fi=0;loops=0;t0=Date.now();
+  sizeCanvas();
+  $('btn-start').disabled=true;$('btn-pause').disabled=false;$('btn-stop').disabled=false;
+  $('settings').style.pointerEvents='none';$('settings').style.opacity='.4';
+  dz.style.pointerEvents='none';dz.style.opacity='.4';
+  timer=setInterval(tick,1000/tx.fps);
+};
+
+$('btn-pause').onclick=()=>{
+  if(!running)return;paused=!paused;
+  $('btn-pause').textContent=paused?'\u25B6 Resume':'\u23F8 Pause';
+  $('phase').textContent=paused?'PAUSED':'';
+};
+
+$('btn-stop').onclick=()=>{
+  running=false;paused=false;
+  if(timer){clearInterval(timer);timer=null;}
+  $('btn-start').disabled=false;$('btn-pause').disabled=true;$('btn-stop').disabled=true;
+  $('btn-pause').textContent='\u23F8 Pause';
+  $('phase').textContent='STOPPED';
+  $('settings').style.pointerEvents='';$('settings').style.opacity='';
+  dz.style.pointerEvents='';dz.style.opacity='';
+};
+
+$('btn-reset').onclick=()=>{
+  // Stop if running
+  if(timer){clearInterval(timer);timer=null;}
+  running=false;paused=false;tx=null;fileState=null;
+  // Reset UI
+  $('btn-start').disabled=true;$('btn-pause').disabled=true;$('btn-stop').disabled=true;$('btn-reset').disabled=true;
+  $('btn-pause').textContent='\u23F8 Pause';
+  $('phase').textContent='';$('stats').textContent='';$('enc-status').textContent='';
+  $('prog-bar').style.width='0%';
+  $('info').style.display='none';$('info2').style.display='none';$('settings').style.display='none';
+  $('settings').style.pointerEvents='';$('settings').style.opacity='';
+  dz.style.pointerEvents='';dz.style.opacity='';
+  dz.innerHTML='<h2>Drop a file here</h2><p>or click to browse</p>';
+  ctx.fillStyle='#000';ctx.fillRect(0,0,canvas.width,canvas.height);
+  fi_.value='';
+};
+
+function tick(){
+  if(!running||paused)return;
+  const N=tx.N;const cellPx=sizeCanvas();
+  const li=fi%tx.total;
+  renderFrame(ctx,genFrame(tx,li),N,cellPx);
+  let ph=li<tx.cfgCnt?'CONFIG':li<tx.cfgCnt+tx.dataCnt?'DATA':'END';
+  if(loops>0&&ph==='DATA')ph='LOOPING';
+  $('phase').textContent=ph;
+  $('prog-bar').style.width=Math.min(100,li/tx.total*100)+'%';
+  const el=((Date.now()-t0)/1000).toFixed(1);
+  const ds=Math.max(0,Math.min(li-tx.cfgCnt,tx.dataCnt));
+  $('stats').textContent='Frame '+li+'/'+tx.total+' | Loop '+loops+' | '+el+'s\n~'+fmtB(ds*tx.bs)+' sent';
+  fi++;
+  if(fi%tx.total===0){fi=0;loops++;}
+}
+
+// Auto-size canvas on window resize
+window.addEventListener('resize',()=>{if(tx&&running)sizeCanvas();else if(fileState)previewGrid();});
+</script>
+</body>
+</html>
