@@ -444,7 +444,7 @@ function detectMarkers(d, w, h) {
       const r = d[i], g = d[i + 1], b = d[i + 2];
 
       const mx = Math.max(r, g, b);
-      if (mx < 45) continue; // truly black/near-black pixel
+      if (mx < 35) continue; // truly black/near-black pixel
 
       // ── Ratio-based 2-channel detection ──
       // Each CMY marker has TWO channels near the max and ONE suppressed.
@@ -454,8 +454,11 @@ function detectMarkers(d, w, h) {
       // These are deliberately loose on the strong-channel side and tight on
       // the weak-channel side so we don't miss dim markers while avoiding
       // single-channel (R/G/B) data-cell hits.
-      const hiT = mx * 0.52;
-      const loT = mx * 0.38;
+      // Strict ratio: strong channels must be ≥60% of max (reduces data-cell
+      // blending false positives), weak channel must be <32% (tight rejection).
+      // The absolute floor mx>35 catches dim monitors where old ">130" failed.
+      const hiT = mx * 0.60;
+      const loT = mx * 0.32;
 
       let key = null;
       // Cyan (TL):    G≈max, B≈max, R suppressed
@@ -533,36 +536,43 @@ function detectMarkers(d, w, h) {
 // Temporal Smoothing — stabilize marker positions across frames
 // ═══════════════════════════════════════════════════════════════════════════
 const smoothedMarkers = { TL: null, TR: null, BL: null };
-const SMOOTH_ALPHA = 0.35; // 0=frozen, 1=no smoothing
+const markerMiss = { TL: 0, TR: 0, BL: 0 };  // consecutive-miss counter
+const MAX_MISS = 6;   // frames before a stale position is dropped
+const SMOOTH_ALPHA = 0.35;
 
 function smoothMarkers(raw) {
   const result = {};
   for (const key of ['TL', 'TR', 'BL']) {
     if (!raw[key]) {
-      // If a corner disappears, keep the last known position for a few frames
+      markerMiss[key]++;
+      if (markerMiss[key] >= MAX_MISS) {
+        // Too many misses in a row — position is stale, discard it
+        smoothedMarkers[key] = null;
+      }
+      // Keep the last known position until it expires
       if (smoothedMarkers[key]) result[key] = smoothedMarkers[key];
-      continue;
-    }
-    if (!smoothedMarkers[key]) {
-      // First detection — no smoothing
-      smoothedMarkers[key] = raw[key].slice();
-      result[key] = raw[key].slice();
     } else {
-      const [ox, oy] = smoothedMarkers[key];
-      const [nx, ny] = raw[key];
-      // Exponential moving average — no outlier rejection
-      // (the tightened color thresholds + black padding handle false positives)
-      const sx = ox + SMOOTH_ALPHA * (nx - ox);
-      const sy = oy + SMOOTH_ALPHA * (ny - oy);
-      smoothedMarkers[key] = [sx, sy];
-      result[key] = [sx, sy];
+      markerMiss[key] = 0;
+      if (!smoothedMarkers[key]) {
+        smoothedMarkers[key] = raw[key].slice();
+      } else {
+        const [ox, oy] = smoothedMarkers[key];
+        const [nx, ny] = raw[key];
+        const sx = ox + SMOOTH_ALPHA * (nx - ox);
+        const sy = oy + SMOOTH_ALPHA * (ny - oy);
+        smoothedMarkers[key] = [sx, sy];
+      }
+      result[key] = smoothedMarkers[key];
     }
   }
   return result;
 }
 
 function resetSmoothing() {
-  for (const key of ['TL','TR','BL']) smoothedMarkers[key] = null;
+  for (const key of ['TL','TR','BL']) {
+    smoothedMarkers[key] = null;
+    markerMiss[key] = 0;
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -920,7 +930,11 @@ async function processFrame(imgData, w, h) {
     if (!result) {
       rsFail++;
       const pctBlack = Math.round(colorDist[0] / cells.length * 100);
-      dbgInfo.textContent = `RS FAIL #${rsFail} (ok:${rsOk}) | ${distStr} | ${pctBlack}% black | cells:${cells.length} | max ${Math.floor(eccBytes/2)} correctable`;
+      const cStr = `cy:${rawCounts.TL||0} mg:${rawCounts.TR||0} yw:${rawCounts.BL||0}`;
+      const rsMsg = `RS FAIL #${rsFail} | ${pctBlack}% blk | max ${Math.floor(eccBytes/2)} fix`;
+      // Show RS status in the stats bar so it's always visible without scrolling
+      elStats.textContent = `${found.length<3 ? 'Missing:'+['TL','TR','BL'].filter(k=>!markers[k]).join(',') : '3 FOUND'} | ${cStr} | ${rsMsg}`;
+      dbgInfo.textContent = `${rsMsg} | ${distStr}`;
       return;
     }
     rsOk++;
@@ -930,7 +944,9 @@ async function processFrame(imgData, w, h) {
         const raw = result.payload;
         const gs = raw[0], nc = raw[1], K = raw.length >= 10 ? (raw[8]<<8|raw[9]) : 0;
         const fs = raw.length >= 8 ? ((raw[4]<<24)|(raw[5]<<16)|(raw[6]<<8)|raw[7])>>>0 : 0;
-        dbgInfo.textContent = `Config rejected: grid=${gs} nc=${nc} K=${K} size=${fs} | ${distStr}`;
+        const msg = `Config rejected: grid=${gs} nc=${nc} K=${K} size=${fs}`;
+        elStats.textContent = msg;
+        dbgInfo.textContent = `${msg} | ${distStr}`;
         return;
       }
       cfg = parsed;
@@ -940,6 +956,7 @@ async function processFrame(imgData, w, h) {
       t0 = Date.now();
       downloadFilename = cfg.filename || 'file';
       state = S.DECODING;
+      elStats.textContent = 'Config OK! Starting decode...';
       dbgInfo.textContent = 'Config OK! Decoding...';
       updateUI();
 
@@ -954,7 +971,9 @@ async function processFrame(imgData, w, h) {
         if (Object.keys(adv).length) track.applyConstraints({ advanced: [adv] });
       } catch (e) { /* some devices don't support manual — OK */ }
     } else {
-      dbgInfo.textContent = `RS OK! type=0x${result.type.toString(16)} (want 0x00=config) | ${distStr} | idx=${result.index}`;
+      const msg = `RS OK type=0x${result.type.toString(16)} (need 0x00) idx=${result.index}`;
+      elStats.textContent = msg;
+      dbgInfo.textContent = `${msg} | ${distStr}`;
     }
     return;
   }
