@@ -919,16 +919,24 @@ async function processFrame(imgData, w, h) {
   if (state === S.SEARCHING) {
     const dataCells = N * N - 36;
     const frameBytes = Math.floor(dataCells / 4);
-    const eccBytes = Math.max(2, Math.floor(frameBytes * 20 / 100));
-    const defaultRs = { nBlocks: 1, totalPer: frameBytes, eccPer: eccBytes, dataPer: frameBytes - eccBytes };
-    const result = decodeFrame(cells, defaultRs);
+    // Try multiple ECC% values so the receiver works regardless of what the
+    // transmitter is configured to — user can freely change ECC% slider.
+    const eccProbes = [20, 30, 40, 15, 25, 10, 50];
+    let result = null, usedEcc = 20;
+    for (const eccPct of eccProbes) {
+      const eb = Math.max(2, Math.floor(frameBytes * eccPct / 100));
+      if (eb >= frameBytes) continue; // nonsensical
+      const rs = { nBlocks:1, totalPer:frameBytes, eccPer:eb, dataPer:frameBytes-eb };
+      const r = decodeFrame(cells, rs);
+      if (r) { result = r; usedEcc = eccPct; break; }
+    }
+    const eccBytes = Math.max(2, Math.floor(frameBytes * usedEcc / 100));
     totalFramesCaptured++;
     if (!result) {
       rsFail++;
       const pctBlack = Math.round(colorDist[0] / cells.length * 100);
       const cStr = `cy:${rawCounts.TL||0} mg:${rawCounts.TR||0} yw:${rawCounts.BL||0}`;
-      const rsMsg = `RS FAIL #${rsFail} | ${pctBlack}% blk | max ${Math.floor(eccBytes/2)} fix`;
-      // Show RS status in the stats bar so it's always visible without scrolling
+      const rsMsg = `RS FAIL #${rsFail} | ${pctBlack}% blk`;
       elStats.textContent = `${found.length<3 ? 'Missing:'+['TL','TR','BL'].filter(k=>!markers[k]).join(',') : '3 FOUND'} | ${cStr} | ${rsMsg}`;
       dbgInfo.textContent = `${rsMsg} | ${distStr}`;
       return;
