@@ -435,7 +435,7 @@ function applyAffine(T, x, y) {
 // ═══════════════════════════════════════════════════════════════════════════
 function detectMarkers(d, w, h) {
   // Collect matching pixel positions per color, then find the largest cluster
-  const buckets = { TL: [], TR: [], BL: [], BR: [] };
+  const buckets = { TL: [], TR: [], BL: [] };
   const step = 3; // sample every 3rd pixel for speed
 
   for (let y = 0; y < h; y += step) {
@@ -443,45 +443,39 @@ function detectMarkers(d, w, h) {
       const i = (y * w + x) * 4;
       const r = d[i], g = d[i + 1], b = d[i + 2];
 
-      // Classify by RGB ratios first (faster than full HSV for strong colors)
       const mx = Math.max(r, g, b);
-      const mn = Math.min(r, g, b);
-      if (mx < 60) continue; // too dark, skip
+      if (mx < 45) continue; // truly black/near-black pixel
 
-      const sat = mx > 0 ? (mx - mn) / mx : 0;
+      // ── Ratio-based 2-channel detection ──
+      // Each CMY marker has TWO channels near the max and ONE suppressed.
+      // Using ratios normalises for monitor brightness and colour temperature.
+      // hiT: both strong channels must be ≥ 52% of max
+      // loT: the weak channel must be < 38% of max
+      // These are deliberately loose on the strong-channel side and tight on
+      // the weak-channel side so we don't miss dim markers while avoiding
+      // single-channel (R/G/B) data-cell hits.
+      const hiT = mx * 0.52;
+      const loT = mx * 0.38;
 
       let key = null;
-      // Marker detection: markers are 2-channel colors (CMY+W).
-      // Data cells are 1-channel (R/G/B) or black. The key distinction:
-      // markers have TWO strong channels, data cells have at most ONE.
-      // Use strict thresholds to avoid matching data cells.
-      const lo = Math.min(r, g, b);
-      if (sat > 0.3) {
-        // Cyan (TL): G and B both strong, R weak
-        if (g > 130 && b > 130 && r < lo + 80 && r < Math.min(g,b) * 0.45)
-          key = 'TL';
-        // Magenta (TR): R and B both strong, G weak
-        else if (r > 130 && b > 130 && g < lo + 80 && g < Math.min(r,b) * 0.45)
-          key = 'TR';
-        // Yellow (BL): R and G both strong, B weak
-        else if (r > 130 && g > 130 && b < lo + 80 && b < Math.min(r,g) * 0.45)
-          key = 'BL';
-      } else if (sat < 0.2 && mn > 130) {
-        // White (BR): all channels strong, low saturation
-        key = 'BR';
-      }
+      // Cyan (TL):    G≈max, B≈max, R suppressed
+      if      (g >= hiT && b >= hiT && r < loT) key = 'TL';
+      // Magenta (TR): R≈max, B≈max, G suppressed
+      else if (r >= hiT && b >= hiT && g < loT) key = 'TR';
+      // Yellow (BL):  R≈max, G≈max, B suppressed
+      else if (r >= hiT && g >= hiT && b < loT) key = 'BL';
 
       if (key) buckets[key].push([x, y]);
     }
   }
 
   // ── Density-based clustering ──
-  // Instead of averaging ALL matching pixels (centroid), find the DENSEST
-  // cluster. The 3x3 marker is a compact blob; false positives from data
-  // cells are scattered thin. Use a binned grid with a sliding 3x3 window.
+  // The actual 3×3 marker is a compact blob; false positives (e.g. camera
+  // blending at R+B cell edges) are scattered thinly across the frame.
+  // Find the bin with the highest neighbour-count and centroid its pixels.
   function densestCluster(pts) {
-    if (pts.length < 4) return null;
-    const BINS = 12;
+    if (pts.length < 5) return null;
+    const BINS = 14; // finer grid → more precise cluster centres
     const bw = w / BINS, bh = h / BINS;
     const counts = new Int32Array(BINS * BINS);
     for (const [px, py] of pts) {
@@ -489,7 +483,7 @@ function detectMarkers(d, w, h) {
       const by = Math.min(BINS-1, Math.floor(py / bh));
       counts[by * BINS + bx]++;
     }
-    // Find densest 3x3 window (handles markers that straddle bin edges)
+    // Sliding 3×3 window sum
     let best = 0, bbx = 0, bby = 0;
     for (let by = 0; by < BINS; by++) {
       for (let bx = 0; bx < BINS; bx++) {
@@ -503,8 +497,8 @@ function detectMarkers(d, w, h) {
         if (sum > best) { best = sum; bbx = bx; bby = by; }
       }
     }
-    if (best < 4) return null;
-    // Centroid of pixels in densest window only
+    if (best < 5) return null;
+    // Centroid of pixels that fall in the winning 3×3 window
     let sx = 0, sy = 0, cnt = 0;
     for (const [px, py] of pts) {
       const bx = Math.min(BINS-1, Math.floor(px / bw));
@@ -513,10 +507,10 @@ function detectMarkers(d, w, h) {
         sx += px; sy += py; cnt++;
       }
     }
-    return cnt >= 3 ? [sx / cnt, sy / cnt] : null;
+    return cnt >= 4 ? [sx / cnt, sy / cnt] : null;
   }
 
-  // Detect TL, TR, BL using density clustering (skip BR — white is unreliable)
+  // Detect TL (cyan), TR (magenta), BL (yellow) using density clustering
   const result = {};
   for (const key of ['TL', 'TR', 'BL']) {
     result[key] = densestCluster(buckets[key]);
@@ -524,11 +518,15 @@ function detectMarkers(d, w, h) {
 
   // Sanity: TL should be left of TR, TL should be above BL
   if (result.TL && result.TR && result.BL) {
-    const [tlx,tly] = result.TL, [trx,try_] = result.TR, [blx,bly] = result.BL;
-    if (tlx > trx + 10 || tly > bly + 10) return {};
+    const [tlx,tly] = result.TL, [trx] = result.TR, [,bly] = result.BL;
+    if (tlx > trx + 10 || tly > bly + 10) return { pts: {}, counts: {} };
   }
 
-  return result;
+  // Return positions AND raw pixel counts for diagnostics
+  return {
+    pts: result,
+    counts: { TL: buckets.TL.length, TR: buckets.TR.length, BL: buckets.BL.length }
+  };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -795,16 +793,16 @@ const CELL_PX = 20;
 
 async function processFrame(imgData, w, h) {
   // 1. Detect markers (raw) then smooth
-  const rawMarkers = detectMarkers(imgData.data, w, h);
+  const { pts: rawMarkers, counts: rawCounts } = detectMarkers(imgData.data, w, h);
   const markers = smoothMarkers(rawMarkers);
   // Only need 3 corners (TL, TR, BL) — white BR is dropped
   const found = ['TL','TR','BL'].filter(k => markers[k]);
 
   // Show debug info during search
   if (state === S.SEARCHING) {
-    const rawFound = ['TL','TR','BL'].filter(k => rawMarkers[k]);
     const missing = ['TL','TR','BL'].filter(k => !markers[k]);
-    elStats.textContent = `Corners: ${found.join(',')}${found.length<3 ? ' | Missing: '+missing.join(',') : ' | ALL 3 FOUND'} | Raw: ${rawFound.length}/3 | ${w}x${h}`;
+    const cStr = `cy:${rawCounts.TL||0} mg:${rawCounts.TR||0} yw:${rawCounts.BL||0}`;
+    elStats.textContent = `${found.length<3 ? 'Missing: '+missing.join(',') : 'ALL 3 FOUND'} | ${cStr} | ${w}x${h}`;
   }
 
   if (found.length < 3) {
