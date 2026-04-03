@@ -358,7 +358,13 @@ function tick(){
   if(!running||paused)return;
   const N=tx.N;const cellPx=sizeCanvas();
   const li=fi%tx.total;
-  renderFrame(ctx,genFrame(tx,li),N,cellPx);
+  // Inject a config frame every 20 data frames (~1.3s at 15fps) so a receiver
+  // that just locked on corners gets config quickly without waiting for the
+  // next loop (which can be 10-20s for large files).
+  const di=li-tx.cfgCnt;
+  const injectCfg=di>=0&&di<tx.dataCnt&&di%20===10;
+  const enc=injectCfg?rsEncodeFrame(buildFrameRaw(0x00,0,tx.cfgP,tx.p),tx.p):genFrame(tx,li);
+  renderFrame(ctx,enc,N,cellPx);
   let ph=li<tx.cfgCnt?'CONFIG':li<tx.cfgCnt+tx.dataCnt?'DATA':'END';
   if(loops>0&&ph==='DATA')ph='LOOPING';
   $('phase').textContent=ph;
