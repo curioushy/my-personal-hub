@@ -481,20 +481,45 @@ function detectMarkers(d, w, h) {
     }
   }
 
-  // Compute centroid for all 4 markers independently
+  // Compute centroid for TL, TR, BL (colored markers — hue-based, reflection-proof)
   const result = {};
-  for (const [key, pts] of Object.entries(buckets)) {
+  for (const key of ['TL', 'TR', 'BL']) {
+    const pts = buckets[key];
     if (pts.length < 4) continue;
     let sx = 0, sy = 0;
     for (const [px, py] of pts) { sx += px; sy += py; }
     result[key] = [sx / pts.length, sy / pts.length];
   }
 
-  // Sanity: if all 4 found, check they form a reasonable quadrilateral
+  // BR (white): phone screen reflects off the monitor creating a bright spot
+  // in the center that dominates the centroid. Fix: only accept white pixels
+  // in the BOTTOM-RIGHT quadrant relative to the grid center.
+  if (result.TL && result.TR && result.BL) {
+    const centerX = (result.TL[0] + result.TR[0]) / 2;
+    const centerY = (result.TL[1] + result.BL[1]) / 2;
+    const brPts = buckets.BR.filter(([px, py]) => px > centerX && py > centerY);
+    if (brPts.length >= 3) {
+      let sx = 0, sy = 0;
+      for (const [px, py] of brPts) { sx += px; sy += py; }
+      result.BR = [sx / brPts.length, sy / brPts.length];
+    } else {
+      // Fallback: geometric prediction (parallelogram)
+      result.BR = [
+        result.TR[0] + result.BL[0] - result.TL[0],
+        result.TR[1] + result.BL[1] - result.TL[1]
+      ];
+    }
+  } else if (buckets.BR.length >= 4) {
+    // No 3 corners yet — raw centroid as last resort
+    let sx = 0, sy = 0;
+    for (const [px, py] of buckets.BR) { sx += px; sy += py; }
+    result.BR = [sx / buckets.BR.length, sy / buckets.BR.length];
+  }
+
+  // Sanity: check quadrilateral makes sense
   if (result.TL && result.TR && result.BL && result.BR) {
     const [tlx,tly] = result.TL, [trx,try_] = result.TR;
     const [blx,bly] = result.BL, [brx,bry] = result.BR;
-    // TL left of TR, TL above BL, BR right of BL, BR below TR
     if (tlx > trx + 10 || tly > bly + 10 || brx < blx - 10 || bry < try_ - 10)
       return {};
   }
