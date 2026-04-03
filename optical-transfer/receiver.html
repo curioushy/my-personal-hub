@@ -481,50 +481,22 @@ function detectMarkers(d, w, h) {
     }
   }
 
-  // Compute centroid for TL, TR, BL (colored markers — reliable hues)
+  // Compute centroid for all 4 markers independently
   const result = {};
-  for (const key of ['TL', 'TR', 'BL']) {
-    const pts = buckets[key];
-    if (pts.length < 5) continue;
+  for (const [key, pts] of Object.entries(buckets)) {
+    if (pts.length < 4) continue;
     let sx = 0, sy = 0;
     for (const [px, py] of pts) { sx += px; sy += py; }
     result[key] = [sx / pts.length, sy / pts.length];
   }
 
-  // For BR (white): if we have the other 3 corners, predict BR position
-  // and only accept white pixels near the prediction (within a radius)
-  if (result.TL && result.TR && result.BL) {
-    // Predict BR = TR + BL - TL (parallelogram completion)
-    const predX = result.TR[0] + result.BL[0] - result.TL[0];
-    const predY = result.TR[1] + result.BL[1] - result.TL[1];
-
-    // Search radius: roughly the distance between TL and TR / 3
-    const gridW = Math.hypot(result.TR[0] - result.TL[0], result.TR[1] - result.TL[1]);
-    const searchR = Math.max(gridW * 0.3, 30);
-
-    // Filter white pixels to those near the predicted position
-    const nearWhite = buckets.BR.filter(([px, py]) => {
-      const dx = px - predX, dy = py - predY;
-      return Math.sqrt(dx*dx + dy*dy) < searchR;
-    });
-
-    if (nearWhite.length >= 3) {
-      let sx = 0, sy = 0;
-      for (const [px, py] of nearWhite) { sx += px; sy += py; }
-      result.BR = [sx / nearWhite.length, sy / nearWhite.length];
-    }
-    // If no white pixels found near prediction, don't fake it — skip this frame
-  } else if (buckets.BR.length >= 5) {
-    // No 3-corner prediction available — use raw centroid as last resort
-    let sx = 0, sy = 0;
-    for (const [px, py] of buckets.BR) { sx += px; sy += py; }
-    result.BR = [sx / buckets.BR.length, sy / buckets.BR.length];
-  }
-
-  // Sanity check: TL should be left of TR, above BL
-  if (result.TL && result.TR && result.BL) {
-    const [tlx,tly] = result.TL, [trx,try_] = result.TR, [blx,bly] = result.BL;
-    if (tlx > trx + 10 || tly > bly + 10) return {};
+  // Sanity: if all 4 found, check they form a reasonable quadrilateral
+  if (result.TL && result.TR && result.BL && result.BR) {
+    const [tlx,tly] = result.TL, [trx,try_] = result.TR;
+    const [blx,bly] = result.BL, [brx,bry] = result.BR;
+    // TL left of TR, TL above BL, BR right of BL, BR below TR
+    if (tlx > trx + 10 || tly > bly + 10 || brx < blx - 10 || bry < try_ - 10)
+      return {};
   }
 
   return result;
@@ -551,19 +523,12 @@ function smoothMarkers(raw) {
     } else {
       const [ox, oy] = smoothedMarkers[key];
       const [nx, ny] = raw[key];
-      const jump = Math.hypot(nx - ox, ny - oy);
-
-      // If the new detection jumps more than 50px, it's probably a
-      // false positive — ignore it and keep the old position
-      if (jump > 50) {
-        result[key] = smoothedMarkers[key];
-      } else {
-        // Exponential moving average
-        const sx = ox + SMOOTH_ALPHA * (nx - ox);
-        const sy = oy + SMOOTH_ALPHA * (ny - oy);
-        smoothedMarkers[key] = [sx, sy];
-        result[key] = [sx, sy];
-      }
+      // Exponential moving average — no outlier rejection
+      // (the tightened color thresholds + black padding handle false positives)
+      const sx = ox + SMOOTH_ALPHA * (nx - ox);
+      const sy = oy + SMOOTH_ALPHA * (ny - oy);
+      smoothedMarkers[key] = [sx, sy];
+      result[key] = [sx, sy];
     }
   }
   return result;
