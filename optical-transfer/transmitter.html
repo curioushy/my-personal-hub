@@ -367,7 +367,7 @@ function tick(){
   const ds=Math.max(0,Math.min(li-tx.cfgCnt,tx.dataCnt));
   $('stats').textContent='Frame '+li+'/'+tx.total+' | Loop '+loops+' | '+el+'s\n~'+fmtB(ds*tx.bs)+' sent';
   fi++;
-  if(fi%tx.total===0){fi=tx.cfgCnt;loops++;}
+  if(fi%tx.total===0){fi=0;loops++;}
 }
 
 // Auto-size canvas on window resize
