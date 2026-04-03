@@ -643,6 +643,17 @@ function parseConfig(p) {
     filename_len: p[45],
     filename:    '',
   };
+
+  // Validate — reject garbage configs (e.g. all-zero frames that pass RS)
+  if (c.grid_size < 8 || c.grid_size > 64) return null;
+  if (c.num_colors !== 4) return null;
+  if (c.K === 0 || c.block_size === 0) return null;
+  if (c.file_size === 0) return null;
+  if (c.fps === 0 || c.fps > 60) return null;
+  if (c.ecc_percent === 0 || c.ecc_percent > 90) return null;
+  // SHA-256 should not be all zeros
+  if (c.sha256 === '0'.repeat(64)) return null;
+
   c.is_compressed = !!(c.flags & 0x01);
   if (c.filename_len > 0 && p.length >= 46 + c.filename_len)
     c.filename = new TextDecoder().decode(p.slice(46, 46 + c.filename_len));
@@ -908,7 +919,11 @@ async function processFrame(imgData, w, h) {
     if (result.type === 0x00) {
       const parsed = parseConfig(result.payload);
       if (!parsed) {
-        dbgInfo.textContent = 'Config frame decoded but payload parse failed';
+        // Show what we got so user can see why it was rejected
+        const raw = result.payload;
+        const gs = raw[0], nc = raw[1], K = raw.length >= 10 ? (raw[8]<<8|raw[9]) : 0;
+        const fs = raw.length >= 8 ? ((raw[4]<<24)|(raw[5]<<16)|(raw[6]<<8)|raw[7])>>>0 : 0;
+        dbgInfo.textContent = `Config rejected: grid=${gs} colors=${nc} K=${K} size=${fs}`;
         return;
       }
       cfg = parsed;
