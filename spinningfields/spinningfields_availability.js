@@ -105,20 +105,10 @@ window.AVAILABILITY_DATA = {
       "availabilityPageUrl": "https://2hardmanstreet.co.uk/"
     },
     "1 Hardman Street": {
-      "status": "Leasing",
-      "marketedSpaces": [
-        {
-          "floor": "3 Floors (Cubo serviced)",
-          "sqft": "~60,000",
-          "condition": "Serviced (Cubo)",
-          "rent": "£425/desk/month",
-          "agent": "Cubo",
-          "url": "https://cubowork.com/building/manchester-spinningfields",
-          "urlSource": "Cubo website",
-          "notes": "19 storeys, BREEAM Excellent. Cubo operates 3 floors of serviced offices. Hot desks, private offices, collaborative areas. Pet-friendly, café, wellness rooms. Restaurant & roof garden."
-        }
-      ],
-      "availabilityPageUrl": "https://cubowork.com/building/manchester-spinningfields"
+      "status": "Unknown",
+      "marketedSpaces": [],
+      "availabilityPageUrl": "",
+      "notes": "Small boutique building (17,000 sq ft, 5 floors), owned by Charles Street Building Group. No marketed spaces tracked. Previously associated with Cubo in error — Cubo occupies No. 1 Spinningfields."
     },
     "1 Hardman Boulevard": {
       "status": "Refurb",
@@ -199,9 +189,10 @@ window.AVAILABILITY_DATA = {
       "availabilityPageUrl": "https://3hardmansquare.com/availability/"
     },
     "The Avenue": {
-      "status": "Leasing",
+      "status": "Unknown",
       "marketedSpaces": [],
-      "availabilityPageUrl": "https://www.spinningfields.co.uk/"
+      "availabilityPageUrl": "https://www.spinningfields.co.uk/",
+      "notes": "Mixed-use (retail ground floor, office upper floors). Allied London managed. No individual office spaces tracked."
     },
     "100 Barbirolli Square": {
       "status": "Leasing",
@@ -266,10 +257,10 @@ window.AVAILABILITY_DATA = {
       "availabilityPageUrl": ""
     },
     "1 Bridgewater Place": {
-      "status": "Leasing",
+      "status": "Unknown",
       "marketedSpaces": [],
       "availabilityPageUrl": "",
-      "notes": "Limited availability data. Contact Bruntwood."
+      "notes": "Former shipping warehouse (Grade II, 1912). Managed by Catella APAM. Mixed office/education tenants. No marketed spaces tracked — contact Catella APAM directly."
     },
     "11 York Street": {
       "status": "Fully Let",
@@ -362,9 +353,10 @@ window.AVAILABILITY_DATA = {
       "availabilityPageUrl": "https://www.new-bailey.com/building/four-new-bailey/"
     },
     "Riverside House": {
-      "status": "Leasing",
+      "status": "Unknown",
       "marketedSpaces": [],
-      "availabilityPageUrl": "https://www.new-bailey.com/"
+      "availabilityPageUrl": "https://www.new-bailey.com/",
+      "notes": "Part of New Bailey estate (LGIM / L&G). No individual office availability tracked — contact LGIM or check new-bailey.com."
     },
     "City Tower": {
       "status": "Leasing",
@@ -991,9 +983,10 @@ window.AVAILABILITY_DATA = {
       "availabilityPageUrl": ""
     },
     "The Lexicon": {
-      "status": "Leasing",
+      "status": "Unknown",
       "marketedSpaces": [],
-      "availabilityPageUrl": ""
+      "availabilityPageUrl": "",
+      "notes": "Multi-let office above retail (Starbucks ground). 10-12 Mount Street. Ownership not publicly disclosed. No marketed spaces tracked."
     },
     "House of Fraser (Kendal Milne)": {
       "status": "Non-office",
@@ -1023,14 +1016,16 @@ window.AVAILABILITY_DATA = {
       "notes": "Booking.com anchor. Part of Enterprise City"
     },
     "Cloister House": {
-      "status": "Leasing",
+      "status": "Unknown",
       "marketedSpaces": [],
-      "availabilityPageUrl": "https://www.bruntwood.co.uk/"
+      "availabilityPageUrl": "https://www.bruntwood.co.uk/",
+      "notes": "Bruntwood managed. No individual spaces tracked — check Bruntwood.co.uk for current availability."
     },
     "Delphian House": {
-      "status": "Leasing",
+      "status": "Unknown",
       "marketedSpaces": [],
-      "availabilityPageUrl": "https://www.bruntwood.co.uk/"
+      "availabilityPageUrl": "https://www.bruntwood.co.uk/",
+      "notes": "Bruntwood managed. No individual spaces tracked — check Bruntwood.co.uk for current availability."
     },
     "Overseas House (Cornerblock)": {
       "status": "Leasing",

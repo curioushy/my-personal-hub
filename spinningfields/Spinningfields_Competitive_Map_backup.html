@@ -1,4 +1,1099 @@
-window.SITE_DATA = {
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Spinningfields & Deansgate, Manchester — Competitive Map | Exploratory Series by Curious_HY</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background-color: #f5f5f5;
+            color: #333;
+        }
+
+        header {
+            background: linear-gradient(135deg, #1a3a52 0%, #2c5282 100%);
+            color: white;
+            padding: 2.5rem 2rem;
+            text-align: center;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+        }
+
+        header h1 {
+            font-size: 2rem;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+            letter-spacing: -0.5px;
+        }
+
+        header p {
+            font-size: 1rem;
+            opacity: 0.95;
+            font-weight: 300;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        /* Landing Page Styles */
+        .landing-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 2rem;
+            padding: 2rem;
+        }
+
+        .site-card {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            padding: 2rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            border: 2px solid transparent;
+        }
+
+        .site-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 8px 16px rgba(0,0,0,0.15);
+            border-color: #2c5282;
+        }
+
+        .site-card h2 {
+            color: #1a3a52;
+            font-size: 1.5rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .site-card p {
+            color: #666;
+            font-size: 0.95rem;
+            margin-bottom: 1rem;
+        }
+
+        .site-card .building-count {
+            color: #2c5282;
+            font-weight: 600;
+            font-size: 0.9rem;
+        }
+
+        .map-section {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        #map {
+            width: 100%;
+            height: 550px;
+            border-radius: 6px;
+            border: 1px solid #e0e0e0;
+        }
+
+        .legend {
+            background: white;
+            padding: 1.25rem;
+            border-radius: 6px;
+            margin-top: 1.5rem;
+            font-size: 0.95rem;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+        }
+
+        .legend-title {
+            font-weight: 600;
+            margin-bottom: 1rem;
+            color: #1a3a52;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 0.75rem;
+        }
+
+        .legend-color {
+            margin-right: 12px;
+            border-radius: 50%;
+            border: 1px solid rgba(0,0,0,0.1);
+            flex-shrink: 0;
+        }
+
+        .tables-section {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            padding: 2rem;
+            margin-bottom: 2rem;
+        }
+
+        .table-title {
+            font-size: 1.35rem;
+            font-weight: 600;
+            color: #1a3a52;
+            margin-bottom: 1.5rem;
+            padding-bottom: 0.75rem;
+            border-bottom: 2px solid #2c5282;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 2.5rem;
+            font-size: 0.95rem;
+        }
+
+        thead {
+            background-color: #f8f9fa;
+            border-top: 2px solid #2c5282;
+            border-bottom: 2px solid #2c5282;
+        }
+
+        th {
+            padding: 1rem;
+            text-align: left;
+            font-weight: 600;
+            color: #1a3a52;
+            white-space: nowrap;
+        }
+
+        th.sortable {
+            cursor: pointer;
+            user-select: none;
+            position: relative;
+            padding-right: 1.5rem;
+        }
+
+        th.sortable:hover {
+            background-color: #edf2f7;
+        }
+
+        th.sortable::after {
+            content: '⇅';
+            position: absolute;
+            right: 0.4rem;
+            opacity: 0.3;
+            font-size: 0.8rem;
+        }
+
+        th.sortable.sort-asc::after {
+            content: '▲';
+            opacity: 0.8;
+            color: #2c5282;
+        }
+
+        th.sortable.sort-desc::after {
+            content: '▼';
+            opacity: 0.8;
+            color: #2c5282;
+        }
+
+        td {
+            padding: 1rem;
+            border-bottom: 1px solid #e9ecef;
+        }
+
+        tbody tr:nth-child(even) {
+            background-color: #f8f9fa;
+        }
+
+        tbody tr:hover {
+            background-color: #e8f0f7;
+        }
+
+        tbody tr.your-building {
+            background-color: #fff5f5 !important;
+            font-weight: 500;
+        }
+
+        tbody tr.your-building:hover {
+            background-color: #ffe8e8 !important;
+        }
+
+        .building-name {
+            font-weight: 600;
+            color: #1a3a52;
+        }
+
+        .your-building .building-name {
+            color: #d73027;
+        }
+
+        .grade-badge {
+            display: inline-block;
+            padding: 0.35rem 0.65rem;
+            border-radius: 4px;
+            font-size: 0.85rem;
+            font-weight: 600;
+        }
+
+        .grade-a {
+            background-color: #d4edda;
+            color: #155724;
+        }
+
+        .grade-b {
+            background-color: #fff3cd;
+            color: #856404;
+        }
+
+        .transaction-info {
+            font-size: 0.9rem;
+            color: #666;
+        }
+
+        .notes-section {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            padding: 2rem;
+            border-left: 4px solid #2c5282;
+            margin-bottom: 2rem;
+        }
+
+        .notes-title {
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: #1a3a52;
+            margin-bottom: 1.25rem;
+        }
+
+        .notes-content {
+            color: #555;
+            line-height: 1.7;
+        }
+
+        .notes-content ul {
+            margin-left: 1.5rem;
+            margin-bottom: 1rem;
+        }
+
+        .notes-content li {
+            margin-bottom: 0.65rem;
+        }
+
+        .notes-content strong {
+            color: #1a3a52;
+        }
+
+        .building-selector {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            margin-bottom: 1rem;
+            padding: 0.75rem 1rem;
+            background: #f0f4f8;
+            border-radius: 6px;
+            border: 1px solid #d1d8e0;
+        }
+
+        .building-selector label {
+            font-weight: 600;
+            color: #1a3a52;
+            white-space: nowrap;
+        }
+
+        .building-selector select {
+            flex: 1;
+            padding: 0.5rem 0.75rem;
+            border: 1px solid #cbd5e0;
+            border-radius: 4px;
+            font-size: 0.95rem;
+            background: white;
+            max-width: 400px;
+        }
+
+        .section-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            cursor: pointer;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        .section-header:hover {
+            opacity: 0.85;
+        }
+
+        .section-header .collapse-icon {
+            font-size: 0.8rem;
+            color: #94a3b8;
+            transition: transform 0.25s ease;
+            flex-shrink: 0;
+            margin-left: 0.75rem;
+        }
+
+        .section-header .collapse-icon.collapsed {
+            transform: rotate(-90deg);
+        }
+
+        .section-body {
+            overflow: hidden;
+            transition: max-height 0.35s ease, opacity 0.25s ease;
+            max-height: 5000px;
+            opacity: 1;
+        }
+
+        .section-body.collapsed {
+            max-height: 0;
+            opacity: 0;
+            margin-top: 0 !important;
+            padding-top: 0 !important;
+        }
+
+        .competitive-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .metric-card {
+            background: #f8fafc;
+            border-radius: 6px;
+            padding: 1.25rem;
+            border-left: 4px solid #2c5282;
+            text-align: center;
+        }
+
+        .metric-card .label {
+            font-size: 0.85rem;
+            color: #666;
+            font-weight: 600;
+            text-transform: uppercase;
+            margin-bottom: 0.5rem;
+        }
+
+        .metric-card .value {
+            font-size: 1.25rem;
+            color: #1a3a52;
+            font-weight: 700;
+        }
+
+        .nearest-competitors {
+            margin-top: 1.5rem;
+            padding-top: 1.5rem;
+            border-top: 1px solid #e9ecef;
+        }
+
+        .nearest-competitors h4 {
+            font-size: 1rem;
+            color: #1a3a52;
+            margin-bottom: 1rem;
+            font-weight: 600;
+        }
+
+        .nearest-competitors table {
+            margin-bottom: 0;
+        }
+
+        .narrative-section {
+            margin-top: 1.5rem;
+            padding: 1.25rem;
+            background: #f0f7ff;
+            border-radius: 6px;
+            border-left: 4px solid #2c5282;
+        }
+
+        .narrative-section h4 {
+            color: #1a3a52;
+            font-size: 1rem;
+            margin-bottom: 0.75rem;
+            font-weight: 600;
+        }
+
+        .narrative-section p {
+            color: #555;
+            line-height: 1.6;
+            font-size: 0.95rem;
+            margin-bottom: 0.75rem;
+        }
+
+        .narrative-section p:last-child {
+            margin-bottom: 0;
+        }
+
+        @media (max-width: 768px) {
+            header h1 {
+                font-size: 1.5rem;
+            }
+
+            header p {
+                font-size: 0.95rem;
+            }
+
+            .container {
+                padding: 1rem;
+            }
+
+            table {
+                font-size: 0.85rem;
+            }
+
+            th, td {
+                padding: 0.75rem 0.5rem;
+            }
+
+            #map {
+                height: 400px;
+            }
+
+            .building-selector {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+
+            .building-selector select {
+                width: 100%;
+                max-width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1 id="pageTitle">Commercial Building Competitive Map</h1>
+        <p id="pageSubtitle">Market Analysis & Competitive Landscape</p>
+        <p style="text-align: right; font-size: 0.8rem; margin-top: 0.3rem; opacity: 0.7;" id="updateDate">Exploratory Series by Curious_HY</p>
+    </header>
+
+    <div class="container" id="mainContainer">
+        <!-- Landing page will be inserted here -->
+    </div>
+
+    <script>
+        // Utility Functions
+        function getDistance(lat1, lon1, lat2, lon2) {
+            var R = 6371000; // Earth's radius in meters
+            var dLat = (lat2 - lat1) * Math.PI / 180;
+            var dLon = (lon2 - lon1) * Math.PI / 180;
+            var a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                      Math.sin(dLon / 2) * Math.sin(dLon / 2);
+            var c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+            return Math.round(R * c); // returns meters
+        }
+
+        function classifyVintage(year) {
+            if (!year || isNaN(year)) return 'Unknown';
+            const y = parseInt(year);
+            const now = 2026;
+            const age = now - y;
+            if (age <= 5) return 'New';
+            if (age <= 10) return 'Recent';
+            if (age <= 20) return 'Modern';
+            return 'Established';
+        }
+
+        function formatNLA(nla) {
+            if (!nla) return '—';
+            var num = parseInt(String(nla).replace(/[^0-9]/g, ''), 10);
+            if (isNaN(num) || num === 0) return String(nla);
+            return num.toLocaleString();
+        }
+
+        function parseNLA(nla) {
+            return parseInt(String(nla).replace(/[^0-9]/g, ''), 10) || 0;
+        }
+
+        function classifyBySize(nla) {
+            var size = parseNLA(nla);
+            if (size >= 300000) return 'Trophy Asset';
+            if (size >= 150000) return 'Major';
+            if (size >= 50000) return 'Secondary';
+            return 'Tertiary';
+        }
+
+        function classifySubmarket(lat, lon, submarkets) {
+            if (!submarkets || submarkets.length === 0) return 'Central';
+            for (const submarket of submarkets) {
+                // Method 1: Condition string (e.g. "lon < -2.250 && lat > 53.478")
+                if (submarket.condition) {
+                    try {
+                        if (new Function('lat', 'lon', 'return (' + submarket.condition + ');')(lat, lon)) {
+                            return submarket.name;
+                        }
+                    } catch(e) { /* skip invalid condition */ }
+                    continue;
+                }
+                // Method 2: Bounding box
+                if (submarket.lat_min !== undefined && submarket.lat_max !== undefined &&
+                    submarket.lon_min !== undefined && submarket.lon_max !== undefined) {
+                    if (lat >= submarket.lat_min && lat <= submarket.lat_max &&
+                        lon >= submarket.lon_min && lon <= submarket.lon_max) {
+                        return submarket.name;
+                    }
+                }
+            }
+            // Fallback: return last submarket name (typically the catch-all) or 'Central'
+            return submarkets[submarkets.length - 1]?.name || 'Central';
+        }
+
+        function getOwnerInsight(owner, ownerInsights) {
+            if (!ownerInsights || !owner) return '';
+            // Handle array format: [{match, text}, ...]
+            if (Array.isArray(ownerInsights)) {
+                const match = ownerInsights.find(o => o.match && owner.toLowerCase().includes(o.match.toLowerCase()));
+                return match ? match.text : '';
+            }
+            // Handle object format: {ownerName: text, ...}
+            if (typeof ownerInsights === 'object') {
+                for (const key in ownerInsights) {
+                    if (owner.toLowerCase().includes(key.toLowerCase())) {
+                        return ownerInsights[key];
+                    }
+                }
+            }
+            return '';
+        }
+
+        function toggleSection(headerEl) {
+            const body = headerEl.nextElementSibling;
+            if (!body || !body.classList.contains('section-body')) return;
+
+            const icon = headerEl.querySelector('.collapse-icon');
+            body.classList.toggle('collapsed');
+            if (icon) icon.classList.toggle('collapsed');
+        }
+
+        function sortTable(colIdx, sortType) {
+            // Get the table that was clicked
+            const th = event.target.closest('th.sortable');
+            if (!th) return;
+
+            const table = th.closest('table');
+            const tbody = table.querySelector('tbody');
+            const rows = Array.from(tbody.querySelectorAll('tr'));
+
+            // Remove sort classes from all headers
+            table.querySelectorAll('th.sortable').forEach(h => {
+                h.classList.remove('sort-asc', 'sort-desc');
+            });
+
+            // Determine sort direction
+            const isAsc = !th.classList.contains('sort-asc');
+            if (isAsc) {
+                th.classList.add('sort-asc');
+                th.classList.remove('sort-desc');
+            } else {
+                th.classList.add('sort-desc');
+                th.classList.remove('sort-asc');
+            }
+
+            // Sort rows
+            rows.sort((a, b) => {
+                let aVal = a.cells[colIdx]?.textContent.trim() || '';
+                let bVal = b.cells[colIdx]?.textContent.trim() || '';
+
+                if (sortType === 'number') {
+                    aVal = parseFloat(aVal.replace(/[^0-9.-]/g, '')) || 0;
+                    bVal = parseFloat(bVal.replace(/[^0-9.-]/g, '')) || 0;
+                } else if (sortType === 'date') {
+                    aVal = new Date(aVal).getTime() || 0;
+                    bVal = new Date(bVal).getTime() || 0;
+                }
+
+                return isAsc ? (aVal > bVal ? 1 : -1) : (aVal < bVal ? 1 : -1);
+            });
+
+            // Re-append sorted rows
+            rows.forEach(row => tbody.appendChild(row));
+        }
+
+        function generateCompetitivePosition(building, allBuildings, submarkets, ownerInsights) {
+            if (!building) return '';
+
+            // Find all competitors within 500m, sorted by distance
+            const allNearby = allBuildings
+                .filter(b => b.name !== building.name)
+                .map(b => ({
+                    ...b,
+                    distance: getDistance(building.lat, building.lon, b.lat, b.lon)
+                }))
+                .filter(b => b.distance <= 500)
+                .sort((a, b) => a.distance - b.distance);
+            const nearestCompetitors = allNearby.slice(0, 5);
+
+            // Metrics
+            const sizeRank = classifyBySize(building.nla);
+            const submarketName = classifySubmarket(building.lat, building.lon, submarkets);
+            const ownerInsight = getOwnerInsight(building.owner, ownerInsights);
+
+            let html = '<div class="competitive-grid">';
+            html += `<div class="metric-card"><div class="label">Size Rank</div><div class="value">${sizeRank}</div></div>`;
+            html += `<div class="metric-card"><div class="label">Submarket</div><div class="value">${submarketName}</div></div>`;
+            html += `<div class="metric-card"><div class="label">Within 500m</div><div class="value">${allNearby.length}</div></div>`;
+            html += `<div class="metric-card"><div class="label">Owner Type</div><div class="value">${building.owner.length > 20 ? 'Institutional' : 'Private'}</div></div>`;
+            html += '</div>';
+
+            // Nearest competitors table
+            if (nearestCompetitors.length > 0) {
+                html += '<div class="nearest-competitors">';
+                html += `<h4>Closest ${nearestCompetitors.length} Competitors (of ${allNearby.length} within 500m)</h4>`;
+                html += '<table><thead><tr><th>Building</th><th>Distance (m)</th><th>NLA</th><th>Owner</th></tr></thead><tbody>';
+                nearestCompetitors.forEach(comp => {
+                    const compSizeRank = classifyBySize(comp.nla);
+                    html += `<tr>
+                        <td class="building-name">${comp.name}</td>
+                        <td>${Math.round(comp.distance)}m</td>
+                        <td>${formatNLA(comp.nla)} sq ft</td>
+                        <td>${comp.owner}</td>
+                    </tr>`;
+                });
+                html += '</tbody></table>';
+                html += '</div>';
+            }
+
+            // Narrative sections
+            html += '<div class="narrative-section">';
+            html += '<h4>Size & Positioning</h4>';
+            html += `<p>${building.name} (${formatNLA(building.nla)} sq ft, ${building.floors} floors) is classified as a <strong>${sizeRank}</strong> asset in the ${submarketName} submarket. Built in ${building.year}, it competes within the ${classifyVintage(building.year).toLowerCase()} vintage segment.</p>`;
+            html += '</div>';
+
+            if (ownerInsight) {
+                html += '<div class="narrative-section">';
+                html += '<h4>Ownership</h4>';
+                html += `<p>${ownerInsight}</p>`;
+                html += '</div>';
+            }
+
+            html += '<div class="narrative-section">';
+            html += '<h4>Submarket Context</h4>';
+            html += `<p>Located in the ${submarketName} submarket, this building serves a diverse market with mixed-use demand drivers including office, retail, and amenity use.</p>`;
+            html += '</div>';
+
+            if (building.txn) {
+                html += '<div class="narrative-section">';
+                html += '<h4>Transaction History</h4>';
+                html += `<p><strong>Notable Transactions:</strong> ${building.txn}</p>`;
+                html += '</div>';
+            }
+
+            return html;
+        }
+
+        function updateCompetitivePosition(building, data) {
+            const competitiveContent = document.getElementById('competitiveContent');
+            if (!competitiveContent) return;
+
+            const html = generateCompetitivePosition(
+                building,
+                data.keyBuildings,
+                data.submarkets || [],
+                data.ownerInsights || []
+            );
+            competitiveContent.innerHTML = html;
+        }
+
+        function initMap(data) {
+            if (document.getElementById('map').style.display === 'none') return;
+
+            // Initialize map
+            window.map = L.map('map').setView([data.center.lat, data.center.lon], data.zoom);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '© OpenStreetMap contributors',
+                maxZoom: 19
+            }).addTo(window.map);
+
+            // Draw radius circle
+            L.circle([data.center.lat, data.center.lon], {
+                radius: data.mapRadius,
+                color: '#d73027',
+                fill: false,
+                dashArray: '5, 5',
+                weight: 2,
+                opacity: 0.6
+            }).addTo(window.map);
+
+            // Add OSM buildings
+            if (data.osmBuildings && data.osmBuildings.length > 0) {
+                data.osmBuildings.forEach(building => {
+                    const color = getBuildingColor(building.building_type);
+                    L.circleMarker([building.lat, building.lon], {
+                        radius: 4,
+                        fillColor: color,
+                        color: color,
+                        weight: 0,
+                        opacity: 0.7,
+                        fillOpacity: 0.6
+                    }).bindPopup(`<strong>${building.name}</strong><br/>${building.building_type || 'Building'}`).addTo(window.map);
+                });
+            }
+
+            // Add key buildings
+            window.keyBuildingMarkers = {};
+            data.keyBuildings.forEach(building => {
+                const marker = L.circleMarker([building.lat, building.lon], {
+                    radius: 10,
+                    fillColor: '#4575b4',
+                    color: '#2c5282',
+                    weight: 2,
+                    opacity: 1,
+                    fillOpacity: 0.8
+                });
+
+                let popupContent = `<strong>${building.name}</strong><br/>`;
+                popupContent += `NLA: ${formatNLA(building.nla)} sq ft<br/>`;
+                popupContent += `Floors: ${building.floors}<br/>`;
+                popupContent += `Owner: ${building.owner}`;
+                if (building.buildingWebsite) popupContent += `<br/><a href="${building.buildingWebsite}" target="_blank">Website</a>`;
+
+                marker.bindPopup(popupContent);
+                marker.addTo(window.map);
+                window.keyBuildingMarkers[building.name] = marker;
+            });
+        }
+
+        function getBuildingColor(buildingType) {
+            if (!buildingType) return '#d2b48c';
+            const type = buildingType.toLowerCase();
+            if (type.includes('office') || type.includes('commercial')) return '#4575b4';
+            if (type.includes('hotel')) return '#228b22';
+            if (type.includes('cultural') || type.includes('museum') || type.includes('theatre')) return '#ff8c00';
+            if (type.includes('government') || type.includes('civic')) return '#a1a1a1';
+            if (type.includes('residential')) return '#add8e6';
+            if (type.includes('retail')) return '#ffff00';
+            if (type.includes('restaurant') || type.includes('cafe')) return '#f59e0b';
+            if (type.includes('education')) return '#9370db';
+            if (type.includes('religious')) return '#ffb6c1';
+            return '#d2b48c';
+        }
+
+        function initChart(chartData) {
+            const ctx = document.getElementById('rentYieldChart');
+            if (!ctx) return;
+
+            new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: chartData.labels,
+                    datasets: [
+                        {
+                            label: chartData.rentLabel || 'Rent (£ psf)',
+                            data: chartData.rents,
+                            backgroundColor: 'rgba(37, 99, 235, 0.7)',
+                            borderColor: 'rgba(37, 99, 235, 1)',
+                            borderWidth: 1,
+                            yAxisID: 'yRent',
+                            order: 2
+                        },
+                        {
+                            label: chartData.yieldLabel || 'Yield (%)',
+                            data: chartData.yields,
+                            type: 'line',
+                            borderColor: '#dc2626',
+                            backgroundColor: 'rgba(220, 38, 38, 0.1)',
+                            pointBackgroundColor: '#dc2626',
+                            pointRadius: 5,
+                            pointHoverRadius: 7,
+                            tension: 0.3,
+                            fill: true,
+                            yAxisID: 'yYield',
+                            order: 1
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    interaction: { mode: 'index', intersect: false },
+                    plugins: {
+                        title: {
+                            display: true,
+                            text: chartData.title || 'Market Metrics',
+                            font: { size: 14, weight: 600 },
+                            color: '#1a3a52'
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(ctx) {
+                                    if (ctx.dataset.yAxisID === 'yRent') return ctx.dataset.label + ': £' + ctx.parsed.y.toFixed(2);
+                                    return ctx.dataset.label + ': ' + ctx.parsed.y.toFixed(2) + '%';
+                                }
+                            }
+                        },
+                        legend: { position: 'bottom' }
+                    },
+                    scales: {
+                        yRent: {
+                            type: 'linear',
+                            position: 'left',
+                            title: { display: true, text: chartData.rentLabel || 'Rent (£ per sq ft)', color: '#2563eb' },
+                            min: Math.min(...chartData.rents) - 5,
+                            max: Math.max(...chartData.rents) + 5,
+                            ticks: { color: '#2563eb', callback: function(v) { return '£' + v; } },
+                            grid: { color: 'rgba(37,99,235,0.08)' }
+                        },
+                        yYield: {
+                            type: 'linear',
+                            position: 'right',
+                            title: { display: true, text: chartData.yieldLabel || 'Yield (%)', color: '#dc2626' },
+                            ticks: { color: '#dc2626', callback: function(v) { return v.toFixed(1) + '%'; } },
+                            grid: { drawOnChartArea: false }
+                        },
+                        x: { grid: { display: false } }
+                    }
+                }
+            });
+        }
+
+        function filterByBuilding(buildingName, data) {
+            if (!buildingName || !window.map) return;
+
+            const building = data.keyBuildings.find(b => b.name === buildingName);
+            if (building) {
+                window.map.setView([building.lat, building.lon], data.zoom + 1);
+                if (window.keyBuildingMarkers[buildingName]) {
+                    window.keyBuildingMarkers[buildingName].openPopup();
+                }
+                updateCompetitivePosition(building, data);
+            }
+        }
+
+        function renderSiteDetails(data) {
+            const container = document.getElementById('mainContainer');
+            let html = '';
+
+            // Map section
+            html += `<div class="map-section">
+                <div class="building-selector">
+                    <label for="buildingSelect">Select Your Building:</label>
+                    <select id="buildingSelect">
+                        <option value="">— None selected —</option>
+                        ${[...data.keyBuildings].sort((a, b) => a.name.localeCompare(b.name)).map(b => `<option value="${b.name}">${b.name}</option>`).join('')}
+                    </select>
+                </div>
+                <div id="map"></div>
+                <div class="legend">
+                    <div class="legend-title">Building Type Legend</div>
+                    <div class="legend-item">
+                        <div class="legend-color" style="width: 32px; height: 32px; background-color: #d73027;"></div>
+                        <span id="selectedBuildingLabel"><strong>Your Building:</strong> <em>None selected</em></span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color" style="width: 24px; height: 24px; background-color: #4575b4;"></div>
+                        <span><strong>Key Buildings</strong></span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color" style="width: 14px; height: 14px; background-color: #d2b48c;"></div>
+                        <span><strong>OSM Buildings</strong></span>
+                    </div>
+                    <div class="legend-item">
+                        <svg width="20" height="20" style="margin-right: 12px;"><circle cx="10" cy="10" r="8" fill="none" stroke="#d73027" stroke-dasharray="2,2" stroke-width="1.5"/></svg>
+                        <span><strong>1km Radius</strong></span>
+                    </div>
+                </div>
+            </div>`;
+
+            // Market Analysis section
+            html += `<div class="notes-section">
+                <div class="section-header" onclick="toggleSection(this)">
+                    <div class="notes-title" style="margin-bottom:0;">Market Analysis & Key Insights</div>
+                    <span class="collapse-icon">▼</span>
+                </div>
+                <div class="section-body notes-content">`;
+
+            if (data.marketInsights) {
+                const renderInsightSection = (title, items, marginTop) => {
+                    if (!items || items.length === 0) return '';
+                    const style = marginTop ? ' style="margin-top:1rem;"' : '';
+                    let s = `<p${style}><strong>${title}</strong></p><ul>`;
+                    items.forEach(item => {
+                        if (typeof item === 'object' && item.label) {
+                            s += `<li><strong>${item.label}:</strong> ${item.text}</li>`;
+                        } else {
+                            s += `<li>${item}</li>`;
+                        }
+                    });
+                    return s + `</ul>`;
+                };
+                html += renderInsightSection('Occupational Market', data.marketInsights.occupational, false);
+                html += renderInsightSection('Investment Market', data.marketInsights.investment, true);
+                html += renderInsightSection('Supply Pipeline', data.marketInsights.supplyPipeline, true);
+                html += renderInsightSection('Micromarket Context', data.marketInsights.micromarket, true);
+            }
+
+            html += `<div id="competitivePosition" style="margin-top:1rem;padding:1rem;background:#f0f7ff;border-radius:6px;border:1px solid #bfdbfe;">
+                <p style="margin:0 0 0.5rem;color:#1a3a52;font-weight:700;font-size:1rem;">Selected Building — Competitive Position</p>
+                <p id="competitiveContent" style="color:#64748b;font-style:italic;margin:0;">Select a building from the dropdown above to see its competitive position analysis.</p>
+            </div>`;
+
+            if (data.dataSources && data.dataSources.length > 0) {
+                html += `<p style="margin-top:1rem;"><strong>Data Sources</strong></p><ul>`;
+                data.dataSources.forEach(source => {
+                    html += `<li>${source}</li>`;
+                });
+                html += `</ul>`;
+            }
+
+            html += `</div></div>`;
+
+            // Chart section
+            if (data.chartData) {
+                html += `<div class="tables-section">
+                    <div class="section-header" onclick="toggleSection(this)">
+                        <h2 class="table-title" style="color: #1e40af;margin-bottom:0;">${data.chartData.title || 'Market Metrics'}</h2>
+                        <span class="collapse-icon">▼</span>
+                    </div>
+                    <div class="section-body">
+                        <canvas id="rentYieldChart" height="300"></canvas>
+                    </div>
+                </div>`;
+            }
+
+            // Leasing activity table
+            if (data.leasingActivity && data.leasingActivity.length > 0) {
+                html += `<div class="tables-section">
+                    <div class="section-header" onclick="toggleSection(this)">
+                        <h2 class="table-title" style="color: #b45309;margin-bottom:0;">Leasing Activity</h2>
+                        <span class="collapse-icon">▼</span>
+                    </div>
+                    <div class="section-body">
+                        <table id="leasingTable">
+                            <thead>
+                                <tr>
+                                    <th class="sortable" onclick="sortTable(0, 'string')">Building</th>
+                                    <th class="sortable" onclick="sortTable(1, 'string')">Tenant</th>
+                                    <th class="sortable" onclick="sortTable(2, 'number')">Area (sq ft)</th>
+                                    <th class="sortable" onclick="sortTable(3, 'string')">Rent</th>
+                                    <th class="sortable" onclick="sortTable(4, 'date')">Date</th>
+                                    <th>Notes</th>
+                                </tr>
+                            </thead>
+                            <tbody>`;
+                data.leasingActivity.forEach(item => {
+                    html += `<tr data-building="${item.building}">
+                        <td class="building-name">${item.building}</td>
+                        <td>${item.tenant}</td>
+                        <td>${item.area || '—'}</td>
+                        <td>${item.rent || '—'}</td>
+                        <td>${item.date}</td>
+                        <td>${item.notes || ''}</td>
+                    </tr>`;
+                });
+                html += `</tbody></table></div></div>`;
+            }
+
+            // Submarket rent table
+            if (data.submarketRentTable) {
+                html += `<div class="tables-section">
+                    <div class="section-header" onclick="toggleSection(this)">
+                        <h2 class="table-title" style="color: #059669;margin-bottom:0;">Submarket Rent Ranges</h2>
+                        <span class="collapse-icon">▼</span>
+                    </div>
+                    <div class="section-body">
+                        <table>
+                            <thead>
+                                <tr>`;
+                data.submarketRentTable.headers.forEach(header => {
+                    html += `<th>${header}</th>`;
+                });
+                html += `</tr></thead><tbody>`;
+                data.submarketRentTable.rows.forEach(row => {
+                    html += `<tr>`;
+                    row.forEach(cell => {
+                        html += `<td>${cell}</td>`;
+                    });
+                    html += `</tr>`;
+                });
+                html += `</tbody></table>`;
+                if (data.submarketRentTable.source) {
+                    html += `<p style="margin-top:0.75rem;font-size:0.85rem;color:#888;"><strong>Source:</strong> ${data.submarketRentTable.source}</p>`;
+                }
+                html += `</div></div>`;
+            }
+
+            // Buildings table
+            html += `<div class="tables-section">
+                <div class="section-header" onclick="toggleSection(this)">
+                    <h2 class="table-title" style="margin-bottom:0;">Building Inventory — All Mapped Buildings</h2>
+                    <span class="collapse-icon">▼</span>
+                </div>
+                <div class="section-body">
+                    <table id="buildingsTable">
+                        <thead>
+                            <tr>
+                                <th class="sortable" onclick="sortTable(0, 'string')">Building Name</th>
+                                <th class="sortable" onclick="sortTable(1, 'number')">Size (sq ft)</th>
+                                <th class="sortable" onclick="sortTable(2, 'number')">Floors</th>
+                                <th class="sortable" onclick="sortTable(3, 'string')">Year Built</th>
+                                <th class="sortable" onclick="sortTable(4, 'string')">Owner</th>
+                                <th>Transaction</th>
+                            </tr>
+                        </thead>
+                        <tbody>`;
+
+            data.keyBuildings.forEach(building => {
+                const rowClass = building.name === data.yourBuilding ? 'your-building' : '';
+                const isYourBuilding = building.name === data.yourBuilding;
+                html += `<tr class="${rowClass}" data-building="${building.name}">
+                    <td class="building-name">${building.name}</td>
+                    <td>${formatNLA(building.nla)} sq ft</td>
+                    <td>${building.floors}</td>
+                    <td>${building.year}</td>
+                    <td>${building.owner}</td>
+                    <td><span class="transaction-info">${building.txn || '—'}</span></td>
+                </tr>`;
+            });
+
+            html += `</tbody></table></div></div>`;
+
+            container.innerHTML = html;
+
+            // Initialize map, chart, and event listeners
+            initMap(data);
+            if (data.chartData) {
+                initChart(data.chartData);
+            }
+
+            const buildingSelect = document.getElementById('buildingSelect');
+            if (buildingSelect) {
+                buildingSelect.addEventListener('change', (e) => {
+                    filterByBuilding(e.target.value, data);
+                    if (e.target.value) {
+                        document.getElementById('selectedBuildingLabel').innerHTML = `<strong>Your Building:</strong> ${e.target.value}`;
+                    } else {
+                        document.getElementById('selectedBuildingLabel').innerHTML = '<strong>Your Building:</strong> <em>None selected</em>';
+                    }
+                });
+            }
+        }
+
+        function renderLandingPage(sites, siteCounts) {
+            var container = document.getElementById('mainContainer');
+            var html = '<div class="landing-container">';
+
+            sites.forEach(function(siteId) {
+                var meta = SITE_META[siteId] || {};
+                var count = siteCounts[siteId] || meta.buildings || 0;
+                var title = meta.title || siteId.charAt(0).toUpperCase() + siteId.slice(1);
+                var desc = meta.desc || 'Commercial competitive landscape analysis';
+                html += '<div class="site-card" onclick="window.location.href=\'?site=' + siteId + '\'">' +
+                    '<h2>' + title + '</h2>' +
+                    '<p>' + desc + '</p>' +
+                    '<div class="building-count">' + count + ' buildings mapped</div>' +
+                '</div>';
+            });
+
+            html += '</div>';
+            container.innerHTML = html;
+        }
+
+// === INLINE SITE DATA (standalone mode) ===
+        window.SITE_DATA = {
   "siteId": "spinningfields",
   "title": "Spinningfields & Deansgate, Manchester",
   "subtitle": "Commercial Building Competitive Landscape & Market Analysis (1km Radius)",
@@ -11,523 +1106,567 @@ window.SITE_DATA = {
   "yourBuilding": "3 Hardman Street",
   "keyBuildings": [
     {
-      "name": "3 Hardman Street",
-      "lat": 53.4799,
-      "lon": -2.2508,
-      "nla": "395,000",
-      "floors": 11,
-      "year": "2009",
-      "owner": "Mapletree Investments",
-      "txn": "£183.5m (2010, Allied London → Ærium) | Mapletree acquired 2019 (undisclosed)",
-      "agent": "Savills"
+        "name": "3 Hardman Street",
+        "lat": 53.4799,
+        "lon": -2.2508,
+        "nla": "387,157",
+        "floors": 14,
+        "year": "2009",
+        "owner": "Mapletree Investments",
+        "txn": "£310.7m (Sep 2015, Allied London → Ærium) | Mapletree acquired 2019 (undisclosed)",
+        "grade": "A+"
     },
     {
-      "name": "2 Hardman Street",
-      "lat": 53.4793,
-      "lon": -2.2504,
-      "nla": "158,000",
-      "floors": 7,
-      "year": "2008 / Refurb 2020-22",
-      "owner": "Allied London",
-      "txn": "Held by Allied London (not publicly transacted)",
-      "agent": "Allied London"
+        "name": "1 Spinningfields Square",
+        "lat": 53.4801,
+        "lon": -2.2494,
+        "nla": "160,000",
+        "floors": 19,
+        "year": "2006",
+        "owner": "NatWest Group plc",
+        "txn": "£44.3m (Dec 2021, NatWest sold freehold). M3 3AP. NatWest owner-occupied HQ. Adjacent to 3 Hardman Street.",
+        "grade": "C"
     },
     {
-      "name": "1 Hardman Street",
-      "lat": 53.4794,
-      "lon": -2.2497,
-      "nla": "17,000",
-      "floors": 5,
-      "year": "2014",
-      "owner": "Charles Street Building Group",
-      "txn": "~£10m (2013, Allied London → Charles Street)",
-      "agent": "Charles Street Building Group"
+        "name": "2 Hardman Street",
+        "lat": 53.4793,
+        "lon": -2.2504,
+        "nla": "149,193",
+        "floors": 15,
+        "year": "2008 / Refurb 2020-22",
+        "owner": "SICORE Real Assets",
+        "txn": "£85.4m (Dec 2008). Sold by Allied London to SICORE. 15-storey refurb office.",
+        "grade": "A"
     },
     {
-      "name": "No. 1 Spinningfields",
-      "lat": 53.4790,
-      "lon": -2.2525,
-      "nla": "370,000",
-      "floors": 20,
-      "year": "2008",
-      "owner": "Schroders Property",
-      "txn": "Former NatWest HQ. Schroders acquired (institutional). Key lettings: Cubo (60k sq ft, Jun 2024), AMS Group (16,423 sq ft, £44 psf, Oct 2024), CBTax (5,400 sq ft, £42.50 psf, 10yr break). Record Spinningfields headline rent achieved.",
-      "agent": "OBI Property / Cushman & Wakefield"
+        "name": "1 Hardman Street",
+        "lat": 53.4794,
+        "lon": -2.2497,
+        "nla": "16,484",
+        "floors": 5,
+        "year": "2014",
+        "owner": "Lone Star Funds",
+        "txn": "Acquired by Lone Star. Small boutique office.",
+        "grade": "B"
     },
     {
-      "name": "1 Hardman Boulevard",
-      "lat": 53.4802,
-      "lon": -2.254,
-      "nla": "350,000",
-      "floors": 9,
-      "year": "2004 / Repositioning 2024",
-      "owner": "Parthena Reys",
-      "txn": "~£45m (Dec 2023, NatWest → Parthena Reys). £250m redevelopment as The Metropolitan. NatWest originally paid £292m (2021)",
-      "agent": "OBI Property"
+        "name": "1 Hardman Boulevard",
+        "lat": 53.4802,
+        "lon": -2.254,
+        "nla": "357,542",
+        "floors": 11,
+        "year": "2003 / Renov 2026",
+        "owner": "Undisclosed (acquired Dec 2023)",
+        "txn": "£183.5m (2010, Allied London → Ærium) | £54.3m (Dec 2023, repositioning sale) | Under Renovation as 'The Metropolitan' (due 2026)",
+        "grade": "A"
     },
     {
-      "name": "XYZ Building (2 Hardman Blvd)",
-      "lat": 53.4805,
-      "lon": -2.2533,
-      "nla": "156,882",
-      "floors": 8,
-      "year": "2016",
-      "owner": "Allied London",
-      "txn": "Held by Allied London (not publicly transacted)",
-      "agent": "Allied London"
+        "name": "XYZ Building (2 Hardman Blvd)",
+        "lat": 53.4805,
+        "lon": -2.2533,
+        "nla": "157,247",
+        "floors": 10,
+        "year": "2016",
+        "owner": "Allied London / Union Investment",
+        "txn": "£118.4m (Mar 2016, forward sale to Union Investment). Allied London retained management.",
+        "grade": "A"
     },
     {
-      "name": "3 Hardman Square",
-      "lat": 53.4796,
-      "lon": -2.2531,
-      "nla": "288,000",
-      "floors": 16,
-      "year": "2007",
-      "owner": "Columbia Threadneedle",
-      "txn": "Spinningfields. Deloitte anchor (~90k sq ft). Also Addleshaw Goddard, DAC Beachcroft. SimpsonHaugh design. BREEAM Excellent",
-      "agent": "Colliers"
+        "name": "3 Hardman Square",
+        "lat": 53.4796,
+        "lon": -2.2531,
+        "nla": "189,108",
+        "floors": 9,
+        "year": "2007",
+        "owner": "Royal London Asset Management",
+        "txn": "£145.1m (Jan 2018, Royal London). Class A tower. Barclays anchor tenant.",
+        "grade": "A"
     },
     {
-      "name": "The Avenue",
-      "lat": 53.4801,
-      "lon": -2.2494,
-      "nla": "55,100",
-      "floors": 5,
-      "year": "2011",
-      "owner": "Allied London",
-      "txn": "Held by Allied London. Mixed-use: retail/restaurant (ground), office (upper). Sheppard Robson design",
-      "agent": "Allied London"
+        "name": "The Avenue",
+        "lat": 53.4801,
+        "lon": -2.2494,
+        "nla": "48,000",
+        "floors": 5,
+        "year": "2011",
+        "owner": "Epic",
+        "txn": "£30.0m (Apr 2013). Grade A retail/office pavilion on Spinningfields Square.",
+        "grade": "A"
     },
     {
-      "name": "100 Barbirolli Square",
-      "lat": 53.4758,
-      "lon": -2.2444,
-      "nla": "150,000",
-      "floors": 11,
-      "year": "Refurb 2020 (11th floor addition)",
-      "owner": "AEW Europe",
-      "txn": "Cat A+ refurbishment. Tenants: Koba (30k sq ft), Brabners (20k sq ft). 100 Barbirolli Sq M2 3AB",
-      "agent": "AEW / Koba"
+        "name": "100 Barbirolli Square",
+        "lat": 53.4758,
+        "lon": -2.2444,
+        "nla": "150,000",
+        "floors": 11,
+        "year": "Refurb 2020 (11th floor addition)",
+        "owner": "AEW Europe",
+        "txn": "Cat A+ refurbishment. Tenants: Koba (30k sq ft), Brabners (20k sq ft). 100 Barbirolli Sq M2 3AB",
+        "grade": "A"
     },
     {
-      "name": "101 Barbirolli Square",
-      "lat": 53.4762,
-      "lon": -2.2449,
-      "nla": "87,000",
-      "floors": 8,
-      "year": "Refurb 2018",
-      "owner": "La Française",
-      "txn": "£47m (2019, AEW → La Française)",
-      "agent": "La Française"
+        "name": "101 Barbirolli Square",
+        "lat": 53.4762,
+        "lon": -2.2449,
+        "nla": "87,000",
+        "floors": 8,
+        "year": "Refurb 2018",
+        "owner": "La Française",
+        "txn": "£47m (2019, AEW → La Française)",
+        "grade": "A"
     },
     {
-      "name": "1 Bridgewater Place",
-      "lat": 53.4767,
-      "lon": -2.2453,
-      "nla": "215,000",
-      "floors": 5,
-      "year": "1912 (Grade II) / Refurb 2022",
-      "owner": "Britannia Invest A/S (Catella APAM)",
-      "txn": "58-60 Whitworth St M1 6LT. £8.1m refurb (2021). Former shipping warehouse. Victoria College of Art + office tenants",
-      "agent": "Catella APAM"
+        "name": "Bridgewater House",
+        "lat": 53.4751,
+        "lon": -2.24,
+        "nla": "215,000",
+        "floors": 10,
+        "year": "1912 (Grade II Listed) / Refurb 2022",
+        "owner": "Britannia Invest A/S (Catella APAM)",
+        "txn": "58-60 Whitworth St M1 6LT. £8.1m refurb (2021–22). Former Pearce & Cutler shipping warehouse. Multi-let offices; Victoria University + professional tenants",
+        "grade": "B+"
     },
     {
-      "name": "11 York Street",
-      "lat": 53.4811,
-      "lon": -2.2408,
-      "nla": "116,700",
-      "floors": 10,
-      "year": "2023",
-      "owner": "Aviva Investors",
-      "txn": "Forward funded (2018, Aviva)",
-      "agent": "Aviva Investors"
+        "name": "11 York Street",
+        "lat": 53.4811,
+        "lon": -2.2408,
+        "nla": "116,700",
+        "floors": 10,
+        "year": "2023",
+        "owner": "Aviva Investors",
+        "txn": "Forward funded (2018, Aviva)",
+        "grade": "A+"
     },
     {
-      "name": "OneTwoFive Deansgate",
-      "lat": 53.4802,
-      "lon": -2.2481,
-      "nla": "117,000",
-      "floors": 12,
-      "year": "2020",
-      "owner": "Revcap",
-      "txn": "125 Deansgate M3 2BY. JMW Solicitors (42,260 sq ft, 15yr lease from 2026). Former BT occupier. ~£85m valuation",
-      "agent": "Colliers"
+        "name": "OneTwoFive Deansgate",
+        "lat": 53.4802,
+        "lon": -2.2481,
+        "nla": "128,877",
+        "floors": 12,
+        "year": "2019",
+        "owner": "Real Estate Venture Capital Management LLP",
+        "txn": "125 Deansgate M3 2BE. 12-storey, 2019. New-build office tower. REVCM.",
+        "grade": "A"
     },
     {
-      "name": "The Lincoln",
-      "lat": 53.4798,
-      "lon": -2.2465,
-      "nla": "102,000",
-      "floors": 6,
-      "year": "2021 (BREEAM Excellent)",
-      "owner": "Marshall CDP / M&G",
-      "txn": "Former Brazennose House. Redesigned by 5Plus Architects. 102k sq ft Grade A. Tenants: Cubo, PFA. Lincoln Square / Brazennose St M2 5AD",
-      "agent": "Marshall CDP / M&G"
+        "name": "The Lincoln",
+        "lat": 53.4798,
+        "lon": -2.2465,
+        "nla": "102,000",
+        "floors": 6,
+        "year": "2021 (BREEAM Excellent)",
+        "owner": "Marshall CDP / M&G",
+        "txn": "Former Brazennose House. Redesigned by 5Plus Architects. 102k sq ft Grade A. Tenants: Cubo, PFA. Lincoln Square / Brazennose St M2 5AD",
+        "grade": "A"
     },
     {
-      "name": "One New Bailey",
-      "lat": 53.4819,
-      "lon": -2.2549,
-      "nla": "125,000",
-      "floors": 8,
-      "year": "2016",
-      "owner": "Legal & General / ECF",
-      "txn": "New Bailey St M3 5FS. Freshfields Bruckhaus Deringer (~75k sq ft). Also WH Ireland, Shawbrook Bank. BREEAM Excellent",
-      "agent": "JLL"
+        "name": "One New Bailey",
+        "lat": 53.4819,
+        "lon": -2.2549,
+        "nla": "125,000",
+        "floors": 8,
+        "year": "2016",
+        "owner": "Legal & General / ECF",
+        "txn": "New Bailey St M3 5FS. Freshfields Bruckhaus Deringer (~75k sq ft). Also WH Ireland, Shawbrook Bank. BREEAM Excellent",
+        "grade": "A"
     },
     {
-      "name": "Two New Bailey",
-      "lat": 53.4815,
-      "lon": -2.2559,
-      "nla": "188,500",
-      "floors": 11,
-      "year": "2020",
-      "owner": "Aviva Investors",
-      "txn": "£113m (2018, Forward fund → Aviva)",
-      "agent": "Cushman & Wakefield"
+        "name": "Two New Bailey",
+        "lat": 53.4815,
+        "lon": -2.2559,
+        "nla": "184,409",
+        "floors": 11,
+        "year": "2020",
+        "owner": "Aviva Investors",
+        "txn": "£159.4m (Feb 2018, pre-sale to Aviva). Completed 2020. BREEAM Excellent.",
+        "grade": "A"
     },
     {
-      "name": "Three New Bailey",
-      "lat": 53.4823,
-      "lon": -2.2551,
-      "nla": "157,000",
-      "floors": 7,
-      "year": "2021",
-      "owner": "English Cities Fund",
-      "txn": "Pre-let to HMRC (25yr lease)",
-      "agent": "N/A"
+        "name": "Three New Bailey",
+        "lat": 53.4823,
+        "lon": -2.2551,
+        "nla": "157,000",
+        "floors": 7,
+        "year": "2021",
+        "owner": "English Cities Fund",
+        "txn": "Pre-let to HMRC (25yr lease)",
+        "grade": "A"
     },
     {
-      "name": "BT/Four New Bailey",
-      "lat": 53.4821,
-      "lon": -2.2541,
-      "nla": "175,000",
-      "floors": 10,
-      "year": "2022",
-      "owner": "Warrington Borough Council",
-      "txn": "£112m (Forward funded by Warrington BC)",
-      "agent": "JLL"
+        "name": "BT/Four New Bailey",
+        "lat": 53.4821,
+        "lon": -2.2541,
+        "nla": "175,000",
+        "floors": 10,
+        "year": "2022",
+        "owner": "Warrington Borough Council",
+        "txn": "£112m (Forward funded by Warrington BC)",
+        "grade": "A"
     },
     {
-      "name": "Riverside House",
-      "lat": 53.481,
-      "lon": -2.2559,
-      "nla": "118,000",
-      "floors": 4,
-      "year": "2019",
-      "owner": "LGIM / Legal & General",
-      "txn": "£6.3m (2020, LGIM)",
-      "agent": "LGIM"
+        "name": "Riverside House",
+        "lat": 53.481,
+        "lon": -2.2559,
+        "nla": "118,000",
+        "floors": 4,
+        "year": "2019",
+        "owner": "LGIM / Legal & General",
+        "txn": "£6.3m (2020, LGIM)",
+        "grade": "A"
     },
     {
-      "name": "City Tower",
-      "lat": 53.4802,
-      "lon": -2.2385,
-      "nla": "~492,500",
-      "floors": 30,
-      "year": "1985",
-      "owner": "Schroders Property",
-      "txn": "£132m (2014, Bruntwood → Schroders)",
-      "agent": "OBI Property"
+        "name": "101 Embankment",
+        "lat": 53.4848,
+        "lon": -2.2476,
+        "nla": 168000,
+        "floors": 10,
+        "year": 2017,
+        "owner": "Melford Capital",
+        "grade": "A",
+        "txn": "~£80m (2025, M&G Real Estate → Melford Capital, contracts exchanged May 2025). M&G paid £105m to acquire in 2017 (from Ask Developments/Carillion/Tristan Capital). BREEAM Excellent, EPC B. 17,500 sq ft floorplates. Q Park with 442 spaces. Opposite Manchester Cathedral."
     },
     {
-      "name": "Arndale House",
-      "lat": 53.4836,
-      "lon": -2.242,
-      "nla": "~190,000",
-      "floors": 19,
-      "year": "1979 / Ongoing refurb",
-      "owner": "Prudential Assurance",
-      "txn": "Part of Arndale portfolio",
-      "agent": "Prudential"
+        "name": "City Tower",
+        "lat": 53.4802,
+        "lon": -2.2385,
+        "nla": "~492,500",
+        "floors": 30,
+        "year": "1985",
+        "owner": "Schroders Property",
+        "txn": "£132m (2014, Bruntwood → Schroders)",
+        "grade": "B"
     },
     {
-      "name": "One New York Street",
-      "lat": 53.4801,
-      "lon": -2.2398,
-      "nla": "~80,000",
-      "floors": 9,
-      "year": "2009",
-      "owner": "Royal London Pension Fund",
-      "txn": "£55m (~2010, Invesco → Royal London)",
-      "agent": "Royal London"
+        "name": "Arndale House",
+        "lat": 53.4836,
+        "lon": -2.242,
+        "nla": "~190,000",
+        "floors": 19,
+        "year": "1979 / Ongoing refurb",
+        "owner": "Prudential Assurance",
+        "txn": "Part of Arndale portfolio",
+        "grade": "B"
     },
     {
-      "name": "Tower 12",
-      "lat": 53.4812,
-      "lon": -2.2507,
-      "nla": "60,000",
-      "floors": 12,
-      "year": "2012",
-      "owner": "Allied London",
-      "txn": "Held by Allied London",
-      "agent": "OBI Property"
+        "name": "One New York Street",
+        "lat": 53.4801,
+        "lon": -2.2398,
+        "nla": "~80,000",
+        "floors": 9,
+        "year": "2009",
+        "owner": "Royal London Pension Fund",
+        "txn": "£55m (~2010, Invesco → Royal London)",
+        "grade": "A"
     },
     {
-      "name": "Landmark",
-      "lat": 53.477,
-      "lon": -2.2429,
-      "nla": "180,000",
-      "floors": 14,
-      "year": "2020",
-      "owner": "Barings",
-      "txn": "Held by Barings (development)",
-      "agent": "Barings"
+        "name": "Tower 12",
+        "lat": 53.4812,
+        "lon": -2.2507,
+        "nla": "84,000",
+        "floors": 11,
+        "year": "2012",
+        "owner": "Citigroup / CBRE Investment Management",
+        "txn": "£37.8m (Dec 2013). 18-22 Bridge St. 1967 build, refurb 2012.",
+        "grade": "B+"
     },
     {
-      "name": "Peter House",
-      "lat": 53.477,
-      "lon": -2.2439,
-      "nla": "94,654",
-      "floors": 8,
-      "year": "1957 / Refurb 2014",
-      "owner": "BP Pension Fund (marketing for sale 2025)",
-      "txn": "On market at £28m+ (Aug 2025, Colliers/MWM). Sale not yet confirmed as completed. Spaces anchor tenant to 2036. Previous: £45.1m (2019, PATRIZIA → BP Pension Fund)",
-      "agent": "Colliers / MWM"
+        "name": "Landmark",
+        "lat": 53.477,
+        "lon": -2.2429,
+        "nla": "180,000",
+        "floors": 14,
+        "year": "2020",
+        "owner": "Barings",
+        "txn": "Held by Barings (development)",
+        "grade": "A"
     },
     {
-      "name": "Civil Justice Centre",
-      "lat": 53.4809,
-      "lon": -2.2527,
-      "nla": "355,000",
-      "floors": 15,
-      "year": "2007",
-      "owner": "HM Courts & Tribunals",
-      "txn": "Government asset (not transacted)",
-      "agent": "N/A"
+        "name": "Peter House",
+        "lat": 53.477,
+        "lon": -2.2439,
+        "nla": "94,654",
+        "floors": 8,
+        "year": "1957 / Refurb 2014",
+        "owner": "New owner (2025)",
+        "txn": "£28m (2025, BP Pension Fund → buyer). Previous: £45.1m (2019, PATRIZIA → BP Pension Fund)",
+        "grade": "B+"
     },
     {
-      "name": "Albert Bridge House",
-      "lat": 53.4817,
-      "lon": -2.2509,
-      "nla": "~180,000",
-      "floors": 18,
-      "year": "1959 / Vacant 2022",
-      "owner": "Oval Real Estate (redevelopment)",
-      "txn": "Former HMRC HQ; Planning ref 143164/FO/2025 approved Oct 2025: 49+37 storey resi + 17 storey office (~£350m)",
-      "agent": "Oval Real Estate"
+        "name": "Albert Bridge House",
+        "lat": 53.4817,
+        "lon": -2.2509,
+        "nla": "~180,000",
+        "floors": 18,
+        "year": "1959 / Vacant 2022 — Rdev Approved 2025",
+        "owner": "Oval Real Estate",
+        "txn": "Former HMRC HQ. Planning approved Oct 2025 (ref 143164/FO/2025): 49+37 storey resi + 17 storey office redevelopment (~£350m GDV)",
+        "grade": "Redevelopment"
     },
     {
-      "name": "Sunlight House",
-      "lat": 53.4788,
-      "lon": -2.2506,
-      "nla": "~200,000",
-      "floors": 14,
-      "year": "1932 (Grade II, HE#1270915)",
-      "owner": "Bruntwood",
-      "txn": "Art Deco heritage office; NGR SJ 83473 98031; suites 1,005-14,156 sq ft",
-      "agent": "Bruntwood"
+        "name": "Sunlight House",
+        "lat": 53.4788,
+        "lon": -2.2506,
+        "nla": "201,276",
+        "floors": 14,
+        "year": "1932 (Grade II, HE#1270915)",
+        "owner": "ValinvestRE / Kinrise",
+        "txn": "£50.8m (Aug 2022, ValinvestRE). Grade II Listed. Art Deco, 1932. Major refurb 2024.",
+        "grade": "B"
     },
     {
-      "name": "Centurion House",
-      "lat": 53.4798,
-      "lon": -2.248,
-      "nla": "~80,000",
-      "floors": 11,
-      "year": "1977 / Refurb",
-      "owner": "Bruntwood (managed)",
-      "txn": "129 Deansgate, M3 3WR. Serviced office suites. Professional services tenants",
-      "agent": "Bruntwood"
+        "name": "Centurion House",
+        "lat": 53.4798,
+        "lon": -2.248,
+        "nla": "65,762",
+        "floors": 12,
+        "year": "1977 / Refurb",
+        "owner": "Bruntwood / GMPF",
+        "txn": "£5.6m (Oct 2023). 129 Deansgate. 1977/2018. Bruntwood JV with GMPF.",
+        "grade": "B"
     },
     {
-      "name": "4 Hardman Street",
-      "lat": 53.4795,
-      "lon": -2.2511,
-      "nla": "~58,800",
-      "floors": 10,
-      "year": "2007",
-      "owner": "Allied London (managed)",
-      "txn": "4 Hardman St M3 3HF. Also known as Vantage Point. Steel frame, boutique office floors ~5,880 sq ft each. Regus/serviced offices. Spinningfields masterplan (Foster + Partners)",
-      "agent": "Allied London / Regus"
+        "name": "4 Hardman Street",
+        "lat": 53.4795,
+        "lon": -2.2511,
+        "nla": "63,000",
+        "floors": 10,
+        "year": "2007",
+        "owner": "T&M Property Investments",
+        "txn": "£16.4m (Dec 2024). Class A. 10-storey, 2010 build.",
+        "grade": "B+"
     },
     {
-      "name": "John Dalton House (YOTEL)",
-      "lat": 53.4805,
-      "lon": -2.2476,
-      "nla": "~109,000",
-      "floors": 10,
-      "year": "1960s / Conv. 2021",
-      "owner": "Tristan Capital Partners",
-      "txn": "121 Deansgate / 2 John Dalton St. Converted to YOTEL hotel (261 rooms) 2021. Former office building",
-      "agent": "N/A"
+        "name": "The Lexicon",
+        "lat": 53.478,
+        "lon": -2.2458,
+        "nla": "50,829",
+        "floors": 11,
+        "year": "1960s / Refurb",
+        "owner": "Pugh Davies Properties",
+        "txn": "10-12 Mount Street M2 5NT. Formerly Television House. Starbucks (ground). Multi-let office above",
+        "grade": "B+"
     },
     {
-      "name": "Leftbank Apartments",
-      "lat": 53.4808,
-      "lon": -2.2545,
-      "nla": "Residential",
-      "floors": 16,
-      "year": "~2007",
-      "owner": "Allied London / various leaseholders",
-      "txn": "Residential; part of Spinningfields masterplan",
-      "agent": "N/A"
+        "name": "Rational House",
+        "lat": 53.4812,
+        "lon": -2.2495,
+        "nla": "~21,000",
+        "floors": 5,
+        "year": "1920s / Refurb",
+        "owner": "W Maher & Sons",
+        "txn": "64 Bridge Street M3 3BN. Red brick period building. Multi-let suites 750-3,764 sq ft",
+        "grade": "B"
     },
     {
-      "name": "Manchester Hall (Masonic Temple)",
-      "lat": 53.4811,
-      "lon": -2.2501,
-      "nla": "Events/Leisure",
-      "floors": 4,
-      "year": "1929 (Grade II Listed)",
-      "owner": "Manchester Hall Ltd",
-      "txn": "36 Bridge Street; former Freemasons HQ, now events venue",
-      "agent": "N/A"
+        "name": "Manchester Goods Yard",
+        "lat": 53.4813,
+        "lon": -2.2559,
+        "nla": "257,690",
+        "floors": 17,
+        "year": "2022",
+        "owner": "Aviva / Allied London / West Midlands Pension Fund",
+        "txn": "6 Goods Yard Street M3 3BG. Booking.com global ground transport HQ. Part of Enterprise City/St Johns. ~28,000 sqm office. Chapman Taylor design",
+        "grade": "A+"
     },
     {
-      "name": "The Lexicon",
-      "lat": 53.478,
-      "lon": -2.2458,
-      "nla": "~45,000",
-      "floors": 10,
-      "year": "1960s / Refurb",
-      "owner": "Not publicly disclosed",
-      "txn": "10-12 Mount Street M2 5NT. Formerly Television House. Starbucks (ground). Multi-let office above",
-      "agent": "Not disclosed"
+        "name": "Cloister House",
+        "lat": 53.4825,
+        "lon": -2.2528,
+        "nla": "~25,000",
+        "floors": 5,
+        "year": "2005",
+        "owner": "Bruntwood",
+        "txn": "Riverside campus, New Bailey St M3 5FS. Part of 4-building cluster (Baskerville, Delphian, Aldine, Cloister)",
+        "grade": "B"
     },
     {
-      "name": "House of Fraser (Kendal Milne)",
-      "lat": 53.4818,
-      "lon": -2.2479,
-      "nla": "~200,000",
-      "floors": 8,
-      "year": "1939 (Grade II Listed)",
-      "owner": "Sports Direct / Frasers Group",
-      "txn": "98-116 Deansgate; heritage retail building",
-      "agent": "N/A"
+        "name": "Delphian House",
+        "lat": 53.4828,
+        "lon": -2.2524,
+        "nla": "~25,000",
+        "floors": 5,
+        "year": "2005",
+        "owner": "Bruntwood",
+        "txn": "Riverside campus, New Bailey St M3 5AP. Professional services tenants",
+        "grade": "B"
     },
     {
-      "name": "Rational House",
-      "lat": 53.4812,
-      "lon": -2.2495,
-      "nla": "~21,000",
-      "floors": 5,
-      "year": "1920s / Refurb",
-      "owner": "W Maher & Sons",
-      "txn": "64 Bridge Street M3 3BN. Red brick period building. Multi-let suites 750-3,764 sq ft",
-      "agent": "W Maher & Sons"
+        "name": "Cornerblock",
+        "lat": 53.4782,
+        "lon": -2.2503,
+        "nla": "70,184",
+        "floors": 7,
+        "year": "1974 / Refurb 2020",
+        "owner": "APAM / Britannia Invest A/S",
+        "txn": "£30.2m (Sep 2020). 11 Quay St. 1966 build, refurb 2017.",
+        "grade": "B+"
     },
     {
-      "name": "Manchester Goods Yard",
-      "lat": 53.4813,
-      "lon": -2.2559,
-      "nla": "~301,000",
-      "floors": 8,
-      "year": "2022",
-      "owner": "Allied London (Enterprise City)",
-      "txn": "6 Goods Yard Street M3 3BG. Booking.com global ground transport HQ. Part of Enterprise City/St Johns. ~28,000 sqm office. Chapman Taylor design",
-      "agent": "Allied London"
+        "name": "Bauhaus",
+        "lat": 53.4793,
+        "lon": -2.2513,
+        "nla": "50,863",
+        "floors": 9,
+        "year": "Refurb 2023",
+        "owner": "Lone Star Funds",
+        "txn": "27 Quay St M3 3AY. 2007 build, refurb 2016. Lone Star Funds. Boutique Grade A.",
+        "grade": "A"
     },
     {
-      "name": "Cloister House",
-      "lat": 53.4813,
-      "lon": -2.2547,
-      "nla": "~25,000",
-      "floors": 5,
-      "year": "2005",
-      "owner": "Bruntwood",
-      "txn": "Riverside campus, New Bailey St M3 5FS. Part of 4-building cluster (Baskerville, Delphian, Aldine, Cloister)",
-      "agent": "Bruntwood"
+        "name": "Quoin",
+        "lat": 53.4789,
+        "lon": -2.2516,
+        "nla": "60,953",
+        "floors": 6,
+        "year": "2001 / Refurb 2024",
+        "owner": "Urbana Partners",
+        "txn": "£16.4m (Mar 2022, to Urbana Partners). 17 Quay St. 2001 build, refurb 2024.",
+        "grade": "A"
     },
     {
-      "name": "Delphian House",
-      "lat": 53.4816,
-      "lon": -2.255,
-      "nla": "~25,000",
-      "floors": 5,
-      "year": "2005",
-      "owner": "Bruntwood",
-      "txn": "Riverside campus, New Bailey St M3 5AP. Professional services tenants",
-      "agent": "Bruntwood"
+        "name": "Aviary",
+        "lat": 53.4783,
+        "lon": -2.2459,
+        "nla": "112,000",
+        "floors": 8,
+        "year": "Refurb 2025 (former Slater+Gordon)",
+        "owner": "M&G Real Estate",
+        "txn": "£49m (2022, New Ireland Assurance → M&G Real Estate). Refurb 2023-25 by Ask/TSK. Latham & Watkins (45k sq ft, 2025). NABERS 5-star target, BREEAM Excellent.",
+        "grade": "A+"
     },
     {
-      "name": "Overseas House (Cornerblock)",
-      "lat": 53.4782,
-      "lon": -2.2503,
-      "nla": "~61,400",
-      "floors": 7,
-      "year": "1974 / Refurb 2020",
-      "owner": "UBS Asset Management (formerly CSAM)",
-      "txn": "£12.25m (2015, Bruntwood → Credit Suisse, now UBS AM following CS merger May 2024). Corner Deansgate/Quay St. 52,175 sq ft office (6 upper floors) + 9,237 sq ft retail (ground). Rebranded Cornerblock. Bridge Architects refurb",
-      "agent": "UBS AM"
+        "name": "4 Angel Square (NOMA)",
+        "lat": 53.4878,
+        "lon": -2.2393,
+        "nla": "200,000",
+        "floors": 10,
+        "year": "2023",
+        "owner": "BNY Mellon",
+        "txn": "~£115m (2025, Federated Hermes → BNY Mellon). 6.5% NIY. Entire building let to BNY on long lease. Manchester's largest city centre office deal since 2023.",
+        "grade": "A+"
     },
     {
-      "name": "Bauhaus",
-      "lat": 53.4793,
-      "lon": -2.2513,
-      "nla": "~20,000",
-      "floors": 3,
-      "year": "Refurb 2023",
-      "owner": "OBI Property",
-      "txn": "27 Quay Street, M3 3GY. WELL Gold Certified. Grade A serviced offices (NewFlex/Bold). Part of Rossetti Place island site",
-      "agent": "OBI Property / Bold"
+        "name": "35 Fountain Street",
+        "lat": 53.481,
+        "lon": -2.2401,
+        "nla": "87,000",
+        "floors": 10,
+        "year": "Pipeline 2027",
+        "owner": "Bywater",
+        "txn": "£55m+ GDV. Hybrid steel/CLT timber. Funded by North West Evergreen Fund. Contractor: GMI Construction. Lowest embodied carbon in city",
+        "grade": "A+"
     },
     {
-      "name": "Quoin",
-      "lat": 53.4789,
-      "lon": -2.2516,
-      "nla": "61,000",
-      "floors": 5,
-      "year": "Refurb 2024",
-      "owner": "Urbana Partners",
-      "txn": "£12.35m (2022, Abrdn → Urbana). £9m refurb completed 2024. 17 Quay St M3 3HN. 54k office + 7k retail. BREEAM Excellent, WiredScore Platinum, EPC A",
-      "agent": "OBI Property"
+        "name": "Belvedere",
+        "lat": 53.4795,
+        "lon": -2.2413,
+        "nla": "104,000",
+        "floors": 9,
+        "year": "2009",
+        "owner": "Deka (WestInvest ImmoValue)",
+        "txn": "~£40m (2022, Orchard Street → Deka). 12 Booth St M2 4AW. Tenants: Savills (16.4k sq ft), CBRE, Arrow Global. Grade A",
+        "grade": "A"
     },
     {
-      "name": "Aviary",
-      "lat": 53.4783,
-      "lon": -2.2459,
-      "nla": "112,000",
-      "floors": 8,
-      "year": "Refurb 2025 (former Slater+Gordon)",
-      "owner": "M&G Real Estate",
-      "txn": "£49m (2022, New Ireland Assurance → M&G). Refurbed by Ask/TSK. NABERS 5* & BREEAM Excellent target. Let to Latham & Watkins (45k sq ft). Agents: CBRE & Sixteen",
-      "agent": "CBRE / Sixteen"
+        "name": "1 Balloon Street",
+        "lat": 53.4851,
+        "lon": -2.2416,
+        "nla": "~100,000",
+        "floors": 8,
+        "year": "1990s / Refurb 2022",
+        "owner": "Wittington Investments",
+        "txn": "£21m (2009, Wittington). 1 Balloon St M4 4BE. Co-operative Bank HQ (45k sq ft, expanded Q4 2025). Orega flexible workspace (26k sq ft)",
+        "grade": "B+"
     },
     {
-      "name": "4 Angel Square (NOMA)",
-      "lat": 53.4878,
-      "lon": -2.2393,
-      "nla": "200,000",
-      "floors": 10,
-      "year": "2023",
-      "owner": "Federated Hermes (BNY acquiring ~£115m)",
-      "txn": "~£115m (2025, Federated Hermes → BNY). 6.5% NIY. Entire building let to BNY on long lease. Largest city centre deal since 2023",
-      "agent": "N/A"
+        "name": "No. 1 Spinningfields",
+        "lat": 53.479,
+        "lon": -2.2525,
+        "nla": "314,801",
+        "floors": 19,
+        "year": "2017",
+        "owner": "Schroders Real Estate / Ilmarinen Pension",
+        "txn": "£264.1m (Oct 2017, forward fund). Quay St M3 3JE. 19-storey landmark tower. BREEAM Outstanding. AstraZeneca, DWF anchor tenants.",
+        "grade": "A"
     },
     {
-      "name": "35 Fountain Street",
-      "lat": 53.481,
-      "lon": -2.2401,
-      "nla": "87,000",
-      "floors": 10,
-      "year": "Pipeline 2027",
-      "owner": "Bywater",
-      "txn": "£55m+ GDV. Hybrid steel/CLT timber. Funded by North West Evergreen Fund. Contractor: GMI Construction. Lowest embodied carbon in city",
-      "agent": "Bywater"
+        "name": "No.1 St Michael's",
+        "lat": 53.4782,
+        "lon": -2.249,
+        "nla": "221,973",
+        "floors": 11,
+        "year": "2025",
+        "owner": "Relentless Group",
+        "txn": "36 Jacksons Row M3 7FL. Completed 2025. Mixed-use with Trebartha Hotel. Part of broader St Michael's scheme.",
+        "grade": "A"
     },
     {
-      "name": "Belvedere",
-      "lat": 53.4795,
-      "lon": -2.2413,
-      "nla": "104,000",
-      "floors": 9,
-      "year": "2009",
-      "owner": "Deka (WestInvest ImmoValue)",
-      "txn": "~£40m (2022, Orchard Street → Deka). 12 Booth St M2 4AW. Tenants: Savills (16.4k sq ft), CBRE, Arrow Global. Grade A",
-      "agent": "Deka"
+        "name": "ABC Buildings",
+        "lat": 53.4785,
+        "lon": -2.2529,
+        "nla": "137,121",
+        "floors": 11,
+        "year": "1965 / Refurb 2018",
+        "owner": "Allied London Properties",
+        "txn": "£23.7m (Jul 2017). 21-23 Quay St M3 3AB. Heritage-led refurb by Allied London. BBC former HQ.",
+        "grade": "B"
     },
     {
-      "name": "1 Balloon Street",
-      "lat": 53.4851,
-      "lon": -2.2416,
-      "nla": "~100,000",
-      "floors": 8,
-      "year": "1990s / Refurb 2022",
-      "owner": "Wittington Investments",
-      "txn": "£21m (2009, Wittington). 1 Balloon St M4 4BE. Co-operative Bank HQ (45k sq ft, expanded Q4 2025). Orega flexible workspace (26k sq ft)",
-      "agent": "Wittington"
+        "name": "Eden Building",
+        "lat": 53.4827,
+        "lon": -2.256,
+        "nla": "117,518",
+        "floors": 12,
+        "year": "2024",
+        "owner": "Salford City Council",
+        "txn": "New Bailey St. Completed 2024. ECF/Salford development. 12-storey Grade A office.",
+        "grade": "A"
+    },
+    {
+        "name": "The Island",
+        "lat": 53.483,
+        "lon": -2.244,
+        "nla": "99,888",
+        "floors": 10,
+        "year": "2024",
+        "owner": "GMPF / HBD",
+        "txn": "King St, Manchester. Completed 2024. JV between GMPF and HBD. Grade A city centre office.",
+        "grade": "A"
+    },
+    {
+        "name": "Windmill Green",
+        "lat": 53.4799,
+        "lon": -2.2453,
+        "nla": "80,999",
+        "floors": 7,
+        "year": "2019",
+        "owner": "Europi Property Group / Trinova Real Estate",
+        "txn": "£58.5m (Jun 2021, Europi/Trinova). 24 Mount St M2 3AW. 7-storey Grade A. NatWest, Pinsent Masons tenants.",
+        "grade": "A"
+    },
+    {
+        "name": "St John's House",
+        "lat": 53.4795,
+        "lon": -2.2485,
+        "nla": "53,537",
+        "floors": 8,
+        "year": "1961 / Refurb 2008",
+        "owner": "Undisclosed",
+        "txn": "£22.3m. 2 Queen St M2 5JB. 8-storey Grade B office. Queen Street / Deansgate area.",
+        "grade": "B"
+    },
+    {
+        "name": "Elliot House",
+        "lat": 53.4793,
+        "lon": -2.2484,
+        "nla": "28,600",
+        "floors": 3,
+        "year": "1878 / Refurb 2009",
+        "owner": "Topland Group",
+        "txn": "£13.1m. 151 Deansgate M3 3WD. Grade II listed Victorian office/events building. Greater Manchester Chamber of Commerce HQ.",
+        "grade": "C"
     }
-  ],
+],
   "buildingWebsites": {
     "3 Hardman Street": "https://3hardmanstreet.com/",
     "2 Hardman Street": "https://2hardmanstreet.co.uk/",
@@ -582,8 +1721,8 @@ window.SITE_DATA = {
       42.5,
       45.0,
       45.5,
-      50.0,
-      52.0
+      48.0,
+      48.5
     ],
     "yields": [
       4.75,
@@ -594,8 +1733,8 @@ window.SITE_DATA = {
       6.0,
       6.75,
       6.5,
-      6.0,
-      5.75
+      6.25,
+      6.0
     ],
     "rentLabel": "Prime Rent (£ psf)",
     "yieldLabel": "Prime Yield / NIY (%)",
@@ -617,36 +1756,36 @@ window.SITE_DATA = {
     "rows": [
       [
         "Spinningfields",
-        "£42.50–£45.50",
-        "£30–£38"
+        "£33–£37",
+        "—"
       ],
       [
         "Central Core",
-        "£40–£45.50",
-        "£30–£37"
+        "£35–£45",
+        "£28–£35"
       ],
       [
         "Piccadilly",
-        "£35–£40",
-        "£25–£34"
+        "£32–£34",
+        "£22–£32"
       ],
       [
         "Ancoats / NQ",
-        "£30–£35",
-        "£22–£28"
+        "£26–£32",
+        "£20–£26"
       ],
       [
         "Salford Quays",
-        "£26–£30",
-        "£18–£24"
+        "£24–£27",
+        "£16–£22"
       ],
       [
         "Media City",
-        "£25–£28",
+        "£23–£26",
         "—"
       ]
     ],
-    "source": "Savills/CBRE/Oktra 2025-26 data. Record rent: £45.50 psf (Q2 2025, No.1 St Michael's). Forecast: £50+ psf in 2026, £52–£55 for best-in-class (Savills/CBRE Jan 2026). Prime vacancy 2.1%."
+    "source": "Area.co.uk 2025 Report. Record rent: £45.50 psf (Q2 2025, Savills). Forecast: £48.50 by 2027 (Savills/LSH)."
   },
   "marketInsights": {
     "occupational": [
@@ -660,7 +1799,7 @@ window.SITE_DATA = {
       },
       {
         "label": "Rental Forecast",
-        "text": "Prime rents expected to break through £50 psf in 2026 (CBRE Manchester Outlook, Jan 2026). Savills forecasts £52 psf by end 2026; emerging evidence suggests £55+ could become the new benchmark for best-in-class (Oktra 2026). Strongest rental growth outlook of the Big Six regionals"
+        "text": "Savills forecasts prime rents rising to £52 psf by end 2026 (+16% from current). Strongest rental growth outlook of the Big Six regionals"
       },
       {
         "label": "Vacancy",
@@ -685,8 +1824,8 @@ window.SITE_DATA = {
         "text": "Buyer pool expanding. Discount to other asset classes attracting capital. Forecast 18% rise in investment volumes in 2026 (Savills European Investment Q4 2025)"
       },
       {
-        "label": "Key Transactions (2024–26)",
-        "text": "BNY acquiring 4 Angel Square ~£115m (6.5% NIY); RPG acquired 11 Portland Street ~£35m (Q1 2026, from Aviva; BoS anchor); Midos acquired One Portland Street from M&G (2026); Peter House on market at £28m+ (BP Pension Fund, sale unconfirmed); Deka acquired Belvedere ~£40m (2022)"
+        "label": "Key Transactions (2024–25)",
+        "text": "BNY acquiring 4 Angel Square ~£115m (6.5% NIY); Peter House sold £28m (BP Pension Fund → new buyer); Deka acquired Belvedere ~£40m"
       }
     ],
     "supplyPipeline": [
@@ -718,7 +1857,7 @@ window.SITE_DATA = {
       },
       {
         "label": "Availability",
-        "text": "Supply constrained — Tower 12, Quoin, and refurbed space at The Aviary offering meaningful Grade A availability. ~20k sq ft becoming available at 3 Hardman Street (Spring 2026) following JMW Solicitors' relocation to 125 Deansgate"
+        "text": "Supply constrained — only Tower 12, Quoin, and refurbed space at The Aviary offering meaningful Grade A availability"
       },
       {
         "label": "Adjacencies",
@@ -764,11 +1903,11 @@ window.SITE_DATA = {
     },
     {
       "match": "Mapletree",
-      "text": "Singapore sovereign-linked REIT with global office portfolio. Owns: 3 Hardman Street (flagship 395k sq ft building)."
+      "text": "Singapore sovereign-linked REIT with global office portfolio. Owns: 3 Hardman Street (flagship 387k sq ft, 14-storey)."
     },
     {
       "match": "Schroders",
-      "text": "UK institutional fund manager with significant Manchester exposure. Owns: No. 1 Spinningfields (370k sq ft, NatWest HQ), City Tower."
+      "text": "UK institutional fund manager with Manchester exposure. Owns: No. 1 Spinningfields (315k sq ft, forward-funded £264m, AstraZeneca/DWF HQ), City Tower."
     }
   ],
   "leasingActivity": [
@@ -1005,33 +2144,6 @@ window.SITE_DATA = {
       "date": "2024",
       "lease_term": "—",
       "notes": "Consolidated from 365k sq ft 1 Hardman Blvd (sold to Parthena Reys for ~£70m). BCO Award 2024"
-    },
-    {
-      "building": "3 Circle Square",
-      "tenant": "Auto Trader Group",
-      "area_sqft": "130,000",
-      "rent": "—",
-      "date": "Q1 2026",
-      "lease_term": "—",
-      "notes": "7 of 15 floors; new HQ for 900+ staff relocating from 1 New York St. Bruntwood SciTech development. Largest Manchester letting in early 2026"
-    },
-    {
-      "building": "11 Portland Street",
-      "tenant": "Bank of Scotland (anchor)",
-      "area_sqft": "95,000",
-      "rent": "—",
-      "date": "Q1 2026 (investment sale)",
-      "lease_term": "—",
-      "notes": "RPG acquired building ~£35m from Aviva (Q1 2026). BoS anchor on 5 floors. ~30k sq ft available following Arm's departure. JLL advised"
-    },
-    {
-      "building": "3 Hardman Street",
-      "tenant": "JMW Solicitors (VACATING)",
-      "area_sqft": "~20,000",
-      "rent": "—",
-      "date": "Spring 2026",
-      "lease_term": "—",
-      "notes": "JMW relocating to 125 Deansgate (42,260 sq ft, 15yr lease). ~20k sq ft becoming available at 3 Hardman Street"
     }
   ],
   "osmBuildings": [
@@ -7813,3 +8925,17 @@ window.SITE_DATA = {
     "Place North West, Property Week, CoStar, The Business Desk (leasing activity & transactions)"
   ]
 };
+
+        // Main initialization (standalone — skip landing page, load data directly)
+        document.addEventListener('DOMContentLoaded', function() {
+            var data = window.SITE_DATA;
+            if (!data) { document.getElementById('mainContainer').innerHTML = '<p>Error: Site data not found.</p>'; return; }
+
+            // Update header
+            document.getElementById('pageTitle').textContent = data.title || 'Competitive Map';
+            document.getElementById('pageSubtitle').textContent = data.subtitle || 'Exploratory Series by Curious_HY';
+
+            // Render site details
+            renderSiteDetails(data);
+        });
+    </script>
