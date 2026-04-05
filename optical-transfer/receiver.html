@@ -37,6 +37,7 @@ video{width:100%;border-radius:6px;display:block;background:#000}
 #btn-resume{display:none;background:#cc8833}
 #btn-restart{display:none;background:#c44}
 #btn-reset{display:none;background:#666;padding:10px 20px;font-size:.85em}
+#btn-log{display:none;background:#445;padding:10px 20px;font-size:.85em}
 #detail-box{
   width:min(420px,92vw);background:rgba(255,255,255,.04);border-radius:6px;
   padding:10px 12px;margin:8px 0;font-size:.72em;color:#999;line-height:1.6;
@@ -68,6 +69,7 @@ video{width:100%;border-radius:6px;display:block;background:#000}
 <button class="btn" id="btn-resume">&#9654; Resume</button>
 <button class="btn" id="btn-restart">&#8634; Restart</button>
 <button class="btn" id="btn-reset">&#8634; Reset</button>
+<button class="btn" id="btn-log">&#128196; Export Log</button>
 <canvas id="debug-canvas" width="120" height="120"></canvas>
 <div id="debug-info"></div>
 <div id="detail-box"></div>
@@ -711,11 +713,43 @@ const btnDl    = document.getElementById('btn-dl');
 const btnResume = document.getElementById('btn-resume');
 const btnRestart = document.getElementById('btn-restart');
 const btnReset = document.getElementById('btn-reset');
+const btnLog   = document.getElementById('btn-log');
 
 function fmtB(b) {
   if (b < 1024) return b + ' B';
   if (b < 1048576) return (b / 1024).toFixed(1) + ' KB';
   return (b / 1048576).toFixed(2) + ' MB';
+}
+
+// ─── Diagnostic Log ───────────────────────────────────────────────────────
+const diagLog = [];
+const MAX_LOG = 5000;
+const sessionStart = Date.now();
+
+function dlog(type, msg, extra) {
+  const ts = ((Date.now() - sessionStart) / 1000).toFixed(2);
+  diagLog.push({ t: ts, type, msg, extra: extra || null });
+  if (diagLog.length > MAX_LOG) diagLog.shift();
+  btnLog.style.display = 'inline-block';
+}
+
+// ─── Audio Feedback ───────────────────────────────────────────────────────
+let audioCtx = null;
+let lastBeepMs = 0;
+function beep(freq = 880, dur = 0.05, vol = 0.12) {
+  const now = Date.now();
+  if (now - lastBeepMs < 150) return; // max ~6 beeps/sec
+  lastBeepMs = now;
+  try {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.connect(gain); gain.connect(audioCtx.destination);
+    osc.frequency.value = freq;
+    gain.gain.setValueAtTime(vol, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + dur);
+    osc.start(); osc.stop(audioCtx.currentTime + dur);
+  } catch (e) { /* audio unavailable */ }
 }
 
 function updateUI() {
@@ -915,6 +949,12 @@ async function processFrame(imgData, w, h) {
   for (const c of cells) colorDist[c]++;
   const distStr = `B:${colorDist[0]} R:${colorDist[1]} G:${colorDist[2]} Bl:${colorDist[3]}`;
 
+  // === Frame quality gate: skip RS decode if >70% black (motion blur / bad frame) ===
+  if (colorDist[0] / cells.length > 0.70) {
+    dlog('SKIP', 'Frame skipped: too many black cells', { pctBlack: Math.round(colorDist[0] / cells.length * 100), dist: distStr });
+    return;
+  }
+
   // === SEARCHING: need config first ===
   if (state === S.SEARCHING) {
     const dataCells = N * N - 36;
@@ -940,6 +980,7 @@ async function processFrame(imgData, w, h) {
       const rsMsg = `RS FAIL #${rsFail} | ${pctBlack}% blk`;
       elStats.textContent = `${found.length<3 ? 'Missing:'+['TL','TR','BL'].filter(k=>!markers[k]).join(',') : '3 FOUND'} | ${cStr} | ${rsMsg}`;
       dbgInfo.textContent = `${rsMsg} | ${distStr}`;
+      if (rsFail <= 50 || rsFail % 25 === 0) dlog('RS_FAIL', rsMsg, { dist: distStr, markers: found.join(',') });
       return;
     }
     rsOk++;
@@ -952,6 +993,7 @@ async function processFrame(imgData, w, h) {
         const msg = `Config rejected: grid=${gs} nc=${nc} K=${K} size=${fs}`;
         elStats.textContent = msg;
         dbgInfo.textContent = `${msg} | ${distStr}`;
+        dlog('WARN', msg);
         return;
       }
       cfg = parsed;
@@ -963,6 +1005,7 @@ async function processFrame(imgData, w, h) {
       state = S.DECODING;
       elStats.textContent = 'Config OK! Starting decode...';
       dbgInfo.textContent = 'Config OK! Decoding...';
+      dlog('STATE', 'Config received — starting decode', { file: cfg.filename, size: cfg.file_size, K: cfg.K, grid: cfg.grid_size, ecc: cfg.ecc_percent });
       updateUI();
 
       // Lock camera (§6.4)
@@ -999,9 +1042,11 @@ async function processFrame(imgData, w, h) {
       const fileChanged = newCfg.sha256 !== cfg.sha256;
       if (settingsChanged || fileChanged) {
         // Settings or file changed — restart automatically with new config
-        elErr.textContent = settingsChanged
+        const chgMsg = settingsChanged
           ? '\u26A0 Transmitter settings changed — restarting with new config...'
           : '\u26A0 Transmitter file changed — restarting...';
+        elErr.textContent = chgMsg;
+        dlog('STATE', chgMsg.replace('\u26A0 ', ''));
         // Re-initialise with new config immediately
         cfg = newCfg;
         lastConfigHash = cfg.sha256;
@@ -1015,9 +1060,17 @@ async function processFrame(imgData, w, h) {
       }
     }
   } else if (result.type === 0x01) {
+    const prevDecoded = decoder.decodedCount;
     decoder.addSymbol(result.index, result.payload.slice(0, cfg.block_size));
     totalFramesCaptured++;
+    if (decoder.decodedCount > prevDecoded) beep();
     updateUI();
+
+    // Log at 25% milestones
+    const _pct = decoder.decodedCount / cfg.K;
+    if ([0.25, 0.50, 0.75].some(m => prevDecoded < Math.floor(cfg.K * m) && decoder.decodedCount >= Math.floor(cfg.K * m))) {
+      dlog('PROGRESS', `${Math.round(_pct * 100)}% decoded`, { blocks: decoder.decodedCount, K: cfg.K, rsOk, rsFail });
+    }
 
     if (decoder.isComplete()) {
       state = S.VERIFYING;
@@ -1054,12 +1107,16 @@ async function verifyAndFinish() {
 
   const hash = await sha256hex(fileData);
   if (hash !== cfg.sha256) {
-    elErr.textContent = 'SHA-256 mismatch. Keep transmitter running and tap Resume.';
+    const errMsg = 'SHA-256 mismatch. Keep transmitter running and tap Resume.';
+    elErr.textContent = errMsg;
+    dlog('ERROR', errMsg, { expected: cfg.sha256.slice(0, 16) + '...', got: hash.slice(0, 16) + '...' });
     state = S.RETRY; updateUI(); return;
   }
 
   // Success!
   downloadData = fileData;
+  dlog('STATE', 'Transfer complete', { file: cfg.filename, size: downloadData.length, elapsed: ((Date.now() - t0) / 1000).toFixed(1) + 's', rsOk, rsFail });
+  beep(1047, 0.18, 0.2); // higher pitch chord for completion
   state = S.COMPLETE;
   updateUI();
   elErr.textContent = '';
@@ -1075,6 +1132,7 @@ async function verifyAndFinish() {
 let captureTimer = null;
 
 async function startCamera() {
+  dlog('STATE', 'Camera starting');
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
       video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } },
@@ -1084,12 +1142,17 @@ async function startCamera() {
     await vid.play();
     ovl.width = vid.clientWidth || 640;
     ovl.height = vid.clientHeight || 360;
+    const track = stream.getVideoTracks()[0];
+    const settings = track ? track.getSettings() : {};
+    dlog('STATE', 'Camera ready', { w: settings.width, h: settings.height, fps: settings.frameRate });
     state = S.SEARCHING;
     btnReset.style.display = 'inline-block';
     updateUI();
     captureTimer = setInterval(captureAndProcess, 66); // ~15fps processing
   } catch (e) {
-    elErr.textContent = 'Camera error: ' + e.message + '. Ensure HTTPS is used.';
+    const camErr = 'Camera error: ' + e.message + '. Ensure HTTPS is used.';
+    elErr.textContent = camErr;
+    dlog('ERROR', camErr);
   }
 }
 
@@ -1107,7 +1170,7 @@ async function captureAndProcess() {
   ovl.width = vid.clientWidth || pw;
   ovl.height = vid.clientHeight || ph;
 
-  try { await processFrame(imgData, pw, ph); } catch (e) { /* per-frame errors OK */ }
+  try { await processFrame(imgData, pw, ph); } catch (e) { dlog('ERROR', 'processFrame exception: ' + e.message, { stack: e.stack ? e.stack.slice(0, 300) : null }); }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1140,6 +1203,7 @@ btnResume.onclick = () => {
 };
 
 function fullReset() {
+  dlog('STATE', 'Full reset');
   cfg = null; decoder = null;
   rsOk = 0; rsFail = 0; totalFramesCaptured = 0;
   resetSmoothing();
@@ -1170,6 +1234,26 @@ function fullReset() {
 
 btnRestart.onclick = fullReset;
 btnReset.onclick = fullReset;
+
+btnLog.onclick = () => {
+  const lines = [
+    `# Optical Transfer Receiver — Diagnostic Log`,
+    `# Generated: ${new Date().toISOString()}`,
+    `# User-Agent: ${navigator.userAgent}`,
+    `# Entries: ${diagLog.length}`,
+    '',
+    ...diagLog.map(e =>
+      `[${e.t}s] [${e.type}] ${e.msg}` + (e.extra ? '  ' + JSON.stringify(e.extra) : ''))
+  ];
+  const blob = new Blob([lines.join('\n')], { type: 'text/plain' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `receiver-log-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.txt`;
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+};
 </script>
 </body>
 </html>
