@@ -538,7 +538,7 @@ function detectMarkers(d, w, h) {
 const smoothedMarkers = { TL: null, TR: null, BL: null };
 const markerMiss = { TL: 0, TR: 0, BL: 0 };  // consecutive-miss counter
 const MAX_MISS = 15;  // ~1s at 15fps before a stale position is dropped
-const SMOOTH_ALPHA = 0.45; // faster convergence to new position
+const SMOOTH_ALPHA = 0.15; // conservative: resist false-positive jumps
 
 function smoothMarkers(raw) {
   const result = {};
@@ -979,8 +979,8 @@ async function processFrame(imgData, w, h) {
   const tlbl = Math.hypot(srcPts[2][0]-srcPts[0][0], srcPts[2][1]-srcPts[0][1]);
   const trbl = Math.hypot(srcPts[2][0]-srcPts[1][0], srcPts[2][1]-srcPts[1][1]);
 
-  // Reject if any pair is too close (< 40px in processing coords)
-  if (tltr < 40 || tlbl < 40 || trbl < 40) {
+  // Reject if any pair is too close (< 50px in processing coords)
+  if (tltr < 50 || tlbl < 50 || trbl < 50) {
     if (totalFramesCaptured % 30 === 0) {
       dlog('MARKER_REJECT', 'Markers too close together', {
         tltr: Math.round(tltr), tlbl: Math.round(tlbl), trbl: Math.round(trbl),
@@ -1001,10 +1001,32 @@ async function processFrame(imgData, w, h) {
     return;
   }
 
+  // Reject if TR is not clearly to the RIGHT of TL (at least 50% of tltr distance)
+  if (srcPts[1][0] - srcPts[0][0] < tltr * 0.5) {
+    if (totalFramesCaptured % 30 === 0) {
+      dlog('MARKER_REJECT', 'TR not to the right of TL', {
+        TL: srcPts[0].map(v=>Math.round(v)), TR: srcPts[1].map(v=>Math.round(v)), dx: Math.round(srcPts[1][0]-srcPts[0][0]),
+      });
+    }
+    diagPeriodicSnapshot();
+    return;
+  }
+
+  // Reject if BL is not clearly BELOW TL (at least 50% of tlbl distance)
+  if (srcPts[2][1] - srcPts[0][1] < tlbl * 0.5) {
+    if (totalFramesCaptured % 30 === 0) {
+      dlog('MARKER_REJECT', 'BL not below TL', {
+        TL: srcPts[0].map(v=>Math.round(v)), BL: srcPts[2].map(v=>Math.round(v)), dy: Math.round(srcPts[2][1]-srcPts[0][1]),
+      });
+    }
+    diagPeriodicSnapshot();
+    return;
+  }
+
   // Reject if the angle at TL is too far from 90° (should be 60°-120° for a roughly rectangular grid)
   const dotTL = (srcPts[1][0]-srcPts[0][0])*(srcPts[2][0]-srcPts[0][0]) + (srcPts[1][1]-srcPts[0][1])*(srcPts[2][1]-srcPts[0][1]);
   const cosAngle = dotTL / (tltr * tlbl);
-  if (Math.abs(cosAngle) > 0.5) { // cos(60°)=0.5, cos(120°)=-0.5
+  if (Math.abs(cosAngle) > 0.34) { // cos(70°)=0.34, cos(110°)=-0.34 — tighter
     if (totalFramesCaptured % 30 === 0) {
       dlog('MARKER_REJECT', 'TL angle too far from 90°', { cosAngle: cosAngle.toFixed(3), angleDeg: Math.round(Math.acos(cosAngle)*180/Math.PI) });
     }
@@ -1022,6 +1044,11 @@ async function processFrame(imgData, w, h) {
       frame_size: `${w}x${h}`,
       has_snapshot: true,
     });
+    // Warn if grid appears too small (cells will be <5px in camera, hard to read)
+    const cellSizePx = Math.round(Math.min(tltr, tlbl) / (N - 3));
+    if (cellSizePx < 8) {
+      dlog('WARN', `Grid too small: ~${cellSizePx}px/cell. Hold phone closer to screen.`, { tltr: Math.round(tltr), tlbl: Math.round(tlbl), N });
+    }
     // Store as a second snapshot (don't overwrite the failure snapshot)
     if (!diagSnapshotFrame) diagSnapshotFrame = snap;
   }
@@ -1056,6 +1083,20 @@ async function processFrame(imgData, w, h) {
     corrR = wr > 10 ? 255 / wr : 1;
     corrG = wg > 10 ? 255 / wg : 1;
     corrB = wb > 10 ? 255 / wb : 1;
+  }
+
+  // ── WB dark-frame guard ──
+  // If the computed BR position is too dark, the affine is likely mapping to
+  // the wrong area (false positive markers). Skip RS decode for this frame.
+  if (wMax < 30) {
+    if (totalFramesCaptured % 60 === 0) {
+      dlog('DARK_FRAME', 'BR position too dark — affine likely wrong', {
+        wb: diagWbLast.map(v=>Math.round(v)),
+        brCam: [Math.round(brCamX), Math.round(brCamY)],
+      });
+    }
+    diagPeriodicSnapshot();
+    return;
   }
 
   // 4. Sample data cells using affine inverse
