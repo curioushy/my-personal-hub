@@ -755,6 +755,7 @@ let diagMarginSamples = 0;
 let diagAffineLast = null;         // last affine transform for logging
 let diagWbLast = [0, 0, 0];       // last white balance sample
 let diagReprojErr = 0;             // last reprojection error in pixels
+let diagFirstMarkerSnapshot = false; // only capture once
 
 function diagCaptureSnapshot(canvas, w, h) {
   // Save a low-res JPEG snapshot for debugging
@@ -812,6 +813,9 @@ function diagPeriodicSnapshot() {
     symbols: `${symbols}/${K}`,
     fps_eff: fpsEff,
     consec_marker_fail: diagConsecMarkerFail,
+    markers_TL: smoothedMarkers.TL ? smoothedMarkers.TL.map(v=>Math.round(v)) : null,
+    markers_TR: smoothedMarkers.TR ? smoothedMarkers.TR.map(v=>Math.round(v)) : null,
+    markers_BL: smoothedMarkers.BL ? smoothedMarkers.BL.map(v=>Math.round(v)) : null,
   });
 }
 
@@ -970,16 +974,71 @@ async function processFrame(imgData, w, h) {
     [1.5 * CELL_PX, (N - 1.5) * CELL_PX],   // BL marker center
   ];
 
+  // ── Marker geometry validation ──
+  const tltr = Math.hypot(srcPts[1][0]-srcPts[0][0], srcPts[1][1]-srcPts[0][1]);
+  const tlbl = Math.hypot(srcPts[2][0]-srcPts[0][0], srcPts[2][1]-srcPts[0][1]);
+  const trbl = Math.hypot(srcPts[2][0]-srcPts[1][0], srcPts[2][1]-srcPts[1][1]);
+
+  // Reject if any pair is too close (< 40px in processing coords)
+  if (tltr < 40 || tlbl < 40 || trbl < 40) {
+    if (totalFramesCaptured % 30 === 0) {
+      dlog('MARKER_REJECT', 'Markers too close together', {
+        tltr: Math.round(tltr), tlbl: Math.round(tlbl), trbl: Math.round(trbl),
+        TL: srcPts[0].map(v=>Math.round(v)), TR: srcPts[1].map(v=>Math.round(v)), BL: srcPts[2].map(v=>Math.round(v)),
+      });
+    }
+    diagPeriodicSnapshot();
+    return;
+  }
+
+  // Reject if aspect ratio is too extreme (grid should be roughly square)
+  const aspect = Math.max(tltr, tlbl) / Math.min(tltr, tlbl);
+  if (aspect > 3.0) {
+    if (totalFramesCaptured % 30 === 0) {
+      dlog('MARKER_REJECT', 'Extreme aspect ratio', { aspect: aspect.toFixed(2), tltr: Math.round(tltr), tlbl: Math.round(tlbl) });
+    }
+    diagPeriodicSnapshot();
+    return;
+  }
+
+  // Reject if the angle at TL is too far from 90° (should be 60°-120° for a roughly rectangular grid)
+  const dotTL = (srcPts[1][0]-srcPts[0][0])*(srcPts[2][0]-srcPts[0][0]) + (srcPts[1][1]-srcPts[0][1])*(srcPts[2][1]-srcPts[0][1]);
+  const cosAngle = dotTL / (tltr * tlbl);
+  if (Math.abs(cosAngle) > 0.5) { // cos(60°)=0.5, cos(120°)=-0.5
+    if (totalFramesCaptured % 30 === 0) {
+      dlog('MARKER_REJECT', 'TL angle too far from 90°', { cosAngle: cosAngle.toFixed(3), angleDeg: Math.round(Math.acos(cosAngle)*180/Math.PI) });
+    }
+    diagPeriodicSnapshot();
+    return;
+  }
+
+  // Capture first valid marker geometry snapshot
+  if (!diagFirstMarkerSnapshot) {
+    diagFirstMarkerSnapshot = true;
+    const snap = diagCaptureSnapshot(pcv, w, h);
+    dlog('MARKER_FIRST', 'First valid marker geometry detected — snapshot captured', {
+      TL: srcPts[0].map(v=>Math.round(v)), TR: srcPts[1].map(v=>Math.round(v)), BL: srcPts[2].map(v=>Math.round(v)),
+      tltr: Math.round(tltr), tlbl: Math.round(tlbl), trbl: Math.round(trbl),
+      frame_size: `${w}x${h}`,
+      has_snapshot: true,
+    });
+    // Store as a second snapshot (don't overwrite the failure snapshot)
+    if (!diagSnapshotFrame) diagSnapshotFrame = snap;
+  }
+
   const A = computeAffine(srcPts, dstPts);
   if (!A) return;
   const Ai = invertAffine(A);
   if (!Ai) return;
 
   // ── Affine quality diagnostic ──
-  diagReprojErr = diagComputeReprojError(A, srcPts, dstPts);
   diagAffineLast = A;
-  if (diagReprojErr > 8 && totalFramesCaptured % 30 === 0) {
-    dlog('AFFINE_WARN', `High reprojection error: ${diagReprojErr.toFixed(1)}px`, {
+  // Marker distances (more useful than reprojection error which is always 0 for 3-point affine)
+  diagReprojErr = tltr; // repurpose: store TL-TR distance as a proxy for grid size
+  const det = A.a * A.d - A.b * A.c;
+  if (Math.abs(det) < 0.001 && totalFramesCaptured % 30 === 0) {
+    dlog('AFFINE_WARN', 'Near-singular affine transform', {
+      det: det.toFixed(6),
       markers: { TL: markers.TL.map(v=>Math.round(v)), TR: markers.TR.map(v=>Math.round(v)), BL: markers.BL.map(v=>Math.round(v)) },
     });
   }
@@ -1116,7 +1175,7 @@ async function processFrame(imgData, w, h) {
       const rsMsg = `RS FAIL #${rsFail} | ${pctBlack}% blk`;
       elStats.textContent = `${found.length<3 ? 'Missing:'+['TL','TR','BL'].filter(k=>!markers[k]).join(',') : '3 FOUND'} | ${cStr} | ${rsMsg}`;
       dbgInfo.textContent = `${rsMsg} | ${distStr}`;
-      if (rsFail <= 50 || rsFail % 25 === 0) dlog('RS_FAIL', rsMsg, { dist: distStr, markers: found.join(','), reproj: diagReprojErr.toFixed(1), wb: diagWbLast.map(v=>Math.round(v)), margin: Math.round(diagAvgMargin) });
+      if (rsFail <= 50 || rsFail % 25 === 0) dlog('RS_FAIL', rsMsg, { dist: distStr, markers: found.join(','), reproj: diagReprojErr.toFixed(1), wb: diagWbLast.map(v=>Math.round(v)), margin: Math.round(diagAvgMargin), markers_px: { TL: srcPts[0].map(v=>Math.round(v)), TR: srcPts[1].map(v=>Math.round(v)), BL: srcPts[2].map(v=>Math.round(v)) }, tltr: Math.round(tltr), tlbl: Math.round(tlbl) });
       return;
     }
     rsOk++;
@@ -1168,7 +1227,7 @@ async function processFrame(imgData, w, h) {
   const result = decodeFrame(cells, cfg.rs, cfg.num_colors);
   if (!result) {
     rsFail++;
-    if (rsFail <= 20 || rsFail % 50 === 0) dlog('RS_FAIL', `Decode #${rsOk+rsFail}`, { dist: `B:${colorDist[0]} R:${colorDist[1]} G:${colorDist[2]} Bl:${colorDist[3]}`, reproj: diagReprojErr.toFixed(1), wb: diagWbLast.map(v=>Math.round(v)), margin: Math.round(diagAvgMargin) });
+    if (rsFail <= 20 || rsFail % 50 === 0) dlog('RS_FAIL', `Decode #${rsOk+rsFail}`, { dist: `B:${colorDist[0]} R:${colorDist[1]} G:${colorDist[2]} Bl:${colorDist[3]}`, reproj: diagReprojErr.toFixed(1), wb: diagWbLast.map(v=>Math.round(v)), margin: Math.round(diagAvgMargin), markers_px: { TL: srcPts[0].map(v=>Math.round(v)), TR: srcPts[1].map(v=>Math.round(v)), BL: srcPts[2].map(v=>Math.round(v)) }, tltr: Math.round(tltr), tlbl: Math.round(tlbl) });
     diagPeriodicSnapshot();
     updateUI();
     return;
@@ -1400,7 +1459,7 @@ function buildLogExport() {
     `# Marker detection rate: ${markerRate}% (${diagMarkerFoundRate[0]}/${diagMarkerFoundRate[1]})`,
     `# Max consecutive marker failures: ${diagConsecMarkerFail}`,
     `# Avg color margin: ${Math.round(diagAvgMargin)} (higher=more confident)`,
-    `# Last reproj error: ${diagReprojErr.toFixed(1)}px`,
+    `# Last TL-TR distance: ${diagReprojErr.toFixed(1)}px`,
     `# Last WB sample (R,G,B): ${diagWbLast.map(v=>Math.round(v)).join(',')}`,
     `# Config: ${cfg ? `grid=${cfg.grid_size} colors=${cfg.num_colors} ecc=${cfg.ecc_percent}% K=${cfg.K} bs=${cfg.block_size}` : 'not received'}`,
     `# File: ${cfg ? `${cfg.filename} (${cfg.file_size} bytes)` : 'unknown'}`,
