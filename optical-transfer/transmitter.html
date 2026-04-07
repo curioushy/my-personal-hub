@@ -48,6 +48,8 @@ button:hover{background:#5a9cf5}
 button:disabled{background:#222;color:#555;cursor:default}
 #btn-reset{background:#666}
 #btn-stop{background:#c44}
+#btn-safe{background:#5a3a9c;width:100%;margin-top:4px}
+.s-check{display:flex;align-items:center;gap:6px;font-size:.75em;color:#bbb;margin-bottom:4px}
 
 #phase{font-size:1em;font-weight:bold;color:#7cf;text-align:center;letter-spacing:2px}
 #prog-wrap{background:#222;border-radius:3px;height:6px;overflow:hidden}
@@ -92,6 +94,8 @@ canvas{image-rendering:pixelated;image-rendering:crisp-edges;display:block}
     <div class="s-row"><label>FPS</label><input type="range" id="s-fps" min="1" max="30" step="1" value="15"><span class="val" id="v-fps">15</span></div>
     <div class="s-row"><label>ECC%</label><input type="range" id="s-ecc" min="5" max="50" step="5" value="20"><span class="val" id="v-ecc">20</span></div>
     <div class="s-row"><label>Extra</label><input type="range" id="s-over" min="1.1" max="3.0" step="0.1" value="1.5"><span class="val" id="v-over">1.5x</span></div>
+    <div class="s-check"><input type="checkbox" id="s-nc"><label for="s-nc">2-Color B/W — slower but far more robust</label></div>
+    <button id="btn-safe">⛨ Safe Mode (Grid 16 · 5fps · ECC 50% · 2-Color)</button>
   </div>
 
   <div id="btn-row">
@@ -135,7 +139,7 @@ function generateSymbol(i,K,blocks,bs,cdf){let st=xorshift32((Math.imul(i+1,2654
 // ═══════════════════════════════════════════════════════════════════════════
 // Frame Parameters + Grid Layout
 // ═══════════════════════════════════════════════════════════════════════════
-function computeParams(N,ecc){const dc=N*N-36,fb=Math.floor(dc/4),eb=Math.max(2,Math.floor(fb*ecc/100));let nb,tp,ep,dp;if(fb<=255){nb=1;tp=fb;ep=eb;dp=fb-eb;}else{nb=Math.ceil(fb/255);tp=Math.floor(fb/nb);ep=Math.floor(eb/nb);dp=tp-ep;}return{fb,nb,tp,ep,dp,pay:dp*nb-4};}
+function computeParams(N,ecc,nc=4){const dc=N*N-36,cpb=nc===2?8:4,fb=Math.floor(dc/cpb),eb=Math.max(2,Math.floor(fb*ecc/100));let nb,tp,ep,dp;if(fb<=255){nb=1;tp=fb;ep=eb;dp=fb-eb;}else{nb=Math.ceil(fb/255);tp=Math.floor(fb/nb);ep=Math.floor(eb/nb);dp=tp-ep;}return{fb,nb,tp,ep,dp,pay:dp*nb-4};}
 
 const DC=[[0,0,0],[255,0,0],[0,255,0],[0,0,255]];
 const MK={TL:[0,255,255],TR:[255,0,255],BL:[255,255,0],BR:[255,255,255]};
@@ -158,17 +162,27 @@ function rsEncodeFrame(raw,p){
   return enc;
 }
 
-function renderFrame(ctx,frameEnc,N,cellPx){
+const DC4=[[0,0,0],[255,0,0],[0,255,0],[0,0,255]];
+const DC2=[[0,0,0],[255,255,255]];
+
+function renderFrame(ctx,frameEnc,N,cellPx,nc=4){
   const totalSize = (N + PAD*2) * cellPx;
-  // Black background (padding)
   ctx.fillStyle='#000';
   ctx.fillRect(0,0,totalSize,totalSize);
 
-  // Unpack RS bytes → 2-bit cells
-  const cells=new Uint8Array(frameEnc.length*4);
-  for(let i=0;i<frameEnc.length;i++){
-    cells[i*4]=(frameEnc[i]>>6)&3;cells[i*4+1]=(frameEnc[i]>>4)&3;
-    cells[i*4+2]=(frameEnc[i]>>2)&3;cells[i*4+3]=frameEnc[i]&3;
+  // Unpack RS bytes → cells (2-bit for 4-color, 1-bit for 2-color)
+  const pal = nc===2 ? DC2 : DC4;
+  const cpb = nc===2 ? 8 : 4;
+  const cells=new Uint8Array(frameEnc.length*cpb);
+  if(nc===2){
+    for(let i=0;i<frameEnc.length;i++){
+      for(let b=0;b<8;b++) cells[i*8+b]=(frameEnc[i]>>(7-b))&1;
+    }
+  } else {
+    for(let i=0;i<frameEnc.length;i++){
+      cells[i*4]=(frameEnc[i]>>6)&3;cells[i*4+1]=(frameEnc[i]>>4)&3;
+      cells[i*4+2]=(frameEnc[i]>>2)&3;cells[i*4+3]=frameEnc[i]&3;
+    }
   }
 
   // Draw grid offset by padding
@@ -177,7 +191,7 @@ function renderFrame(ctx,frameEnc,N,cellPx){
   for(let row=0;row<N;row++){
     for(let col=0;col<N;col++){
       const m=isMk(row,col,N);
-      const [r,g,b]=m?MK[m]:DC[ci<cells.length?cells[ci]:0];
+      const [r,g,b]=m?MK[m]:pal[ci<cells.length?cells[ci]:0];
       if(!m)ci++;
       ctx.fillStyle=`rgb(${r},${g},${b})`;
       ctx.fillRect(ox+col*cellPx,oy+row*cellPx,cellPx,cellPx);
@@ -206,7 +220,7 @@ function buildBlocks(data,bs){const K=Math.ceil(data.length/bs);const p=new Uint
 
 function buildConfigPayload(c){
   const maxFn=Math.max(0,c.bs-46);const fn=new TextEncoder().encode(c.fn).slice(0,maxFn);
-  const p=new Uint8Array(46+fn.length);p[0]=c.N;p[1]=4;p[2]=c.fps;p[3]=c.ecc;
+  const p=new Uint8Array(46+fn.length);p[0]=c.N;p[1]=c.nc||4;p[2]=c.fps;p[3]=c.ecc;
   new DataView(p.buffer).setUint32(4,c.fs,false);new DataView(p.buffer).setUint16(8,c.K,false);
   new DataView(p.buffer).setUint16(10,c.bs,false);p.set(c.sha,12);p[44]=c.isComp?1:0;p[45]=fn.length;p.set(fn,46);return p;
 }
@@ -219,13 +233,14 @@ let tx=null;
 
 function initTx(){
   const N=+$('s-grid').value,fps=+$('s-fps').value,ecc=+$('s-ecc').value,over=+$('s-over').value;
-  const p=computeParams(N,ecc);
+  const nc=$('s-nc').checked?2:4;
+  const p=computeParams(N,ecc,nc);
   if(p.pay<=0){$('enc-status').textContent='Grid too small for this ECC.';return null;}
   const{K,blocks}=buildBlocks(fileState.data,p.pay);
   const cdf=robustSolitonCdf(K);const nSym=Math.max(K+10,Math.floor(K*over));
-  const cfgP=buildConfigPayload({N,fps,ecc,fs:fileState.fs,K,bs:p.pay,sha:fileState.sha,isComp:fileState.isComp,fn:fileState.fn});
+  const cfgP=buildConfigPayload({N,fps,ecc,nc,fs:fileState.fs,K,bs:p.pay,sha:fileState.sha,isComp:fileState.isComp,fn:fileState.fn});
   const endP=buildEndPayload(fileState.sha,nSym);
-  return{N,fps,p,bs:p.pay,K,blocks,cdf,nSym,cfgP,endP,cfgCnt:fps,dataCnt:nSym,endCnt:fps,total:fps+nSym+fps};
+  return{N,fps,nc,p,bs:p.pay,K,blocks,cdf,nSym,cfgP,endP,cfgCnt:fps,dataCnt:nSym,endCnt:fps,total:fps+nSym+fps};
 }
 
 function genFrame(tx,idx){
@@ -234,7 +249,7 @@ function genFrame(tx,idx){
   if(idx<cfgCnt)raw=buildFrameRaw(0x00,0,cfgP,p);
   else if(idx<cfgCnt+dataCnt){const si=idx-cfgCnt;raw=buildFrameRaw(0x01,si,generateSymbol(si,K,blocks,bs,cdf),p);}
   else raw=buildFrameRaw(0xFF,0xFFFFFF,endP,p);
-  return rsEncodeFrame(raw,p);
+  return rsEncodeFrame(raw,p);  // nc stored in tx for renderFrame
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -270,9 +285,30 @@ function updateEstimates(){
 }
 
 // Settings sliders
-for(const[id,fmt]of[['s-grid',v=>v],['s-fps',v=>v],['s-ecc',v=>v],['s-over',v=>v+'x']]){
-  const el=$(id);el.oninput=()=>{$('v-'+id.slice(2)).textContent=fmt(el.value);updateEstimates();previewGrid();};
+function hotReinit(){
+  if(!running||paused)return;
+  const newTx=initTx();if(!newTx)return;
+  clearInterval(timer);
+  tx=newTx;fi=0;loops=0;t0=Date.now();
+  timer=setInterval(tick,1000/tx.fps);
 }
+
+for(const[id,fmt]of[['s-grid',v=>v],['s-fps',v=>v],['s-ecc',v=>v],['s-over',v=>v+'x']]){
+  const el=$(id);
+  el.oninput=()=>{$('v-'+id.slice(2)).textContent=fmt(el.value);updateEstimates();previewGrid();};
+  el.onchange=()=>hotReinit();
+}
+$('s-nc').onchange=()=>hotReinit();
+
+$('btn-safe').onclick=()=>{
+  $('s-grid').value=16; $('v-grid').textContent=16;
+  $('s-fps').value=5;   $('v-fps').textContent=5;
+  $('s-ecc').value=50;  $('v-ecc').textContent=50;
+  $('s-over').value=3.0;$('v-over').textContent='3.0x';
+  $('s-nc').checked=true;
+  updateEstimates();previewGrid();
+  hotReinit();
+};
 
 function previewGrid(){
   if(!fileState)return;
@@ -316,7 +352,7 @@ $('btn-start').onclick=()=>{
   running=true;paused=false;fi=0;loops=0;t0=Date.now();
   sizeCanvas();
   $('btn-start').disabled=true;$('btn-pause').disabled=false;$('btn-stop').disabled=false;
-  $('settings').style.pointerEvents='none';$('settings').style.opacity='.4';
+  // Settings stay unlocked — changing them hot-switches the transmitter
   dz.style.pointerEvents='none';dz.style.opacity='.4';
   timer=setInterval(tick,1000/tx.fps);
 };
@@ -333,7 +369,6 @@ $('btn-stop').onclick=()=>{
   $('btn-start').disabled=false;$('btn-pause').disabled=true;$('btn-stop').disabled=true;
   $('btn-pause').textContent='\u23F8 Pause';
   $('phase').textContent='STOPPED';
-  $('settings').style.pointerEvents='';$('settings').style.opacity='';
   dz.style.pointerEvents='';dz.style.opacity='';
 };
 
@@ -358,13 +393,13 @@ function tick(){
   if(!running||paused)return;
   const N=tx.N;const cellPx=sizeCanvas();
   const li=fi%tx.total;
-  // Inject a config frame every 20 data frames (~1.3s at 15fps) so a receiver
-  // that just locked on corners gets config quickly without waiting for the
-  // next loop (which can be 10-20s for large files).
+  // Inject config frames periodically so a receiver that just locked on gets
+  // config fast. Rate scales with FPS: target ~once per 0.5s.
   const di=li-tx.cfgCnt;
-  const injectCfg=di>=0&&di<tx.dataCnt&&di%20===10;
+  const injectEvery=Math.max(3,Math.round(tx.fps/2));
+  const injectCfg=di>=0&&di<tx.dataCnt&&di%injectEvery===Math.floor(injectEvery/2);
   const enc=injectCfg?rsEncodeFrame(buildFrameRaw(0x00,0,tx.cfgP,tx.p),tx.p):genFrame(tx,li);
-  renderFrame(ctx,enc,N,cellPx);
+  renderFrame(ctx,enc,N,cellPx,tx.nc);
   let ph=li<tx.cfgCnt?'CONFIG':li<tx.cfgCnt+tx.dataCnt?'DATA':'END';
   if(loops>0&&ph==='DATA')ph='LOOPING';
   $('phase').textContent=ph;
