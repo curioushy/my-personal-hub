@@ -1,0 +1,845 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Basic Chinese - 基本华文</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&display=swap');
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --pink: #FF6B9D;
+      --orange: #FF8C42;
+      --yellow: #FFC857;
+      --green: #5CB85C;
+      --blue: #4A90D9;
+      --purple: #9B59B6;
+      --red: #E74C3C;
+      --teal: #1ABC9C;
+      --bg: #FFF8F0;
+      --card-shadow: 0 4px 15px rgba(0,0,0,0.1);
+    }
+
+    body {
+      font-family: 'Nunito', sans-serif;
+      background: var(--bg);
+      color: #333;
+      min-height: 100vh;
+    }
+
+    /* Header */
+    .header {
+      background: linear-gradient(135deg, var(--pink), var(--orange), var(--yellow));
+      padding: 20px 20px 12px;
+      text-align: center;
+      color: white;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      box-shadow: 0 4px 20px rgba(255, 107, 157, 0.3);
+    }
+
+    .header h1 {
+      font-size: 1.8rem;
+      font-weight: 800;
+      text-shadow: 2px 2px 4px rgba(0,0,0,0.15);
+    }
+
+    .header p {
+      font-size: 0.9rem;
+      opacity: 0.9;
+      margin-top: 2px;
+    }
+
+    /* Level selector */
+    .level-selector {
+      display: flex;
+      justify-content: center;
+      gap: 0;
+      margin-top: 12px;
+    }
+
+    .level-btn {
+      padding: 8px 28px;
+      border: 2px solid rgba(255,255,255,0.6);
+      background: rgba(255,255,255,0.15);
+      color: white;
+      font-family: 'Nunito', sans-serif;
+      font-size: 0.95rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .level-btn:first-child { border-radius: 25px 0 0 25px; }
+    .level-btn:last-child { border-radius: 0 25px 25px 0; }
+
+    .level-btn.active {
+      background: white;
+      color: var(--orange);
+      border-color: white;
+    }
+
+    .level-btn:hover:not(.active) {
+      background: rgba(255,255,255,0.3);
+    }
+
+    /* Navigation */
+    .nav {
+      display: flex;
+      gap: 8px;
+      padding: 12px 20px;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: none;
+      background: white;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+      position: sticky;
+      top: 108px;
+      z-index: 99;
+    }
+
+    .nav::-webkit-scrollbar { display: none; }
+
+    .nav-btn {
+      flex-shrink: 0;
+      padding: 8px 18px;
+      border: 3px solid transparent;
+      border-radius: 50px;
+      font-family: 'Nunito', sans-serif;
+      font-size: 0.85rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      color: white;
+      white-space: nowrap;
+      background: var(--blue);
+    }
+
+    .nav-btn:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.2); }
+    .nav-btn.active { border-color: #333; transform: scale(1.05); }
+    .nav-btn.instructions-btn { background: #666; }
+
+    /* Main content */
+    .container {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+
+    /* Chapter header */
+    .chapter-header {
+      text-align: center;
+      margin-bottom: 24px;
+      padding: 20px;
+    }
+
+    .chapter-header .emoji {
+      font-size: 3rem;
+      display: block;
+      margin-bottom: 8px;
+    }
+
+    .chapter-header h2 {
+      font-size: 1.8rem;
+      font-weight: 800;
+    }
+
+    .chapter-header p {
+      color: #777;
+      margin-top: 4px;
+      font-size: 1rem;
+    }
+
+    /* Word cards */
+    .cards-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 16px;
+    }
+
+    .word-card {
+      background: white;
+      border-radius: 20px;
+      padding: 24px 20px;
+      box-shadow: var(--card-shadow);
+      text-align: center;
+      transition: all 0.3s ease;
+      border-left: 6px solid var(--blue);
+      cursor: pointer;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .word-card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: linear-gradient(135deg, rgba(255,107,157,0.05), rgba(255,200,87,0.05));
+      opacity: 0;
+      transition: opacity 0.3s;
+    }
+
+    .word-card:hover { transform: translateY(-4px); box-shadow: 0 8px 25px rgba(0,0,0,0.15); }
+    .word-card:hover::before { opacity: 1; }
+
+    .word-card .chinese {
+      font-size: 2.6rem;
+      font-weight: 800;
+      color: #E74C3C;
+      line-height: 1.2;
+      margin-bottom: 4px;
+    }
+
+    .word-card .pinyin {
+      font-size: 1.05rem;
+      color: var(--blue);
+      font-weight: 600;
+      margin-bottom: 6px;
+    }
+
+    .word-card .english {
+      font-size: 1.1rem;
+      color: #555;
+      font-weight: 700;
+    }
+
+    .word-card .audio-hint {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      margin-top: 10px;
+      font-size: 0.78rem;
+      color: #bbb;
+    }
+
+    /* Color swatch */
+    .color-swatch {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      margin: 0 auto 6px;
+      border: 3px solid white;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    }
+
+    /* Quiz button in card area */
+    .audio-btn {
+      padding: 8px 16px;
+      border: none;
+      border-radius: 25px;
+      font-family: 'Nunito', sans-serif;
+      font-size: 0.85rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      background: #FFE8E8;
+      color: #E74C3C;
+    }
+
+    .audio-btn:hover { transform: scale(1.05); }
+
+    /* Instructions page */
+    .instructions {
+      background: white;
+      border-radius: 20px;
+      padding: 32px;
+      box-shadow: var(--card-shadow);
+      line-height: 1.8;
+    }
+
+    .instructions h2 { font-size: 1.6rem; margin-bottom: 16px; color: var(--pink); }
+    .instructions h3 { font-size: 1.2rem; margin: 20px 0 8px; color: var(--blue); }
+    .instructions p, .instructions li { font-size: 1rem; color: #555; }
+    .instructions ul, .instructions ol { padding-left: 24px; margin-bottom: 12px; }
+    .instructions li { margin-bottom: 6px; }
+
+    .instructions code {
+      background: #f4f4f4;
+      padding: 2px 8px;
+      border-radius: 6px;
+      font-size: 0.9rem;
+      color: #E74C3C;
+    }
+
+    .instructions pre {
+      background: #2d2d2d;
+      color: #f8f8f2;
+      padding: 16px;
+      border-radius: 12px;
+      overflow-x: auto;
+      margin: 12px 0;
+      font-size: 0.85rem;
+      line-height: 1.6;
+    }
+
+    .instructions .tip {
+      background: #FFF3CD;
+      border-left: 4px solid var(--yellow);
+      padding: 12px 16px;
+      border-radius: 0 12px 12px 0;
+      margin: 12px 0;
+    }
+
+    /* Progress bar */
+    .progress-section {
+      background: white;
+      border-radius: 16px;
+      padding: 14px 20px;
+      margin-bottom: 20px;
+      box-shadow: var(--card-shadow);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .progress-section .label {
+      font-weight: 700;
+      font-size: 0.85rem;
+      color: #777;
+      white-space: nowrap;
+    }
+
+    .progress-bar {
+      flex: 1;
+      height: 12px;
+      background: #eee;
+      border-radius: 10px;
+      overflow: hidden;
+    }
+
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--green), var(--teal));
+      border-radius: 10px;
+      transition: width 0.5s ease;
+    }
+
+    .progress-section .count {
+      font-weight: 800;
+      color: var(--green);
+      font-size: 0.9rem;
+    }
+
+    /* Quiz mode */
+    .quiz-section {
+      text-align: center;
+      background: white;
+      border-radius: 20px;
+      padding: 32px;
+      box-shadow: var(--card-shadow);
+      margin-bottom: 24px;
+    }
+
+    .quiz-section h3 { font-size: 1.3rem; margin-bottom: 8px; }
+
+    .quiz-chinese {
+      font-size: 3.5rem;
+      font-weight: 800;
+      color: #E74C3C;
+      margin: 16px 0;
+    }
+
+    .quiz-options {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      max-width: 500px;
+      margin: 20px auto 0;
+    }
+
+    .quiz-option {
+      padding: 14px;
+      border: 3px solid #eee;
+      border-radius: 16px;
+      background: white;
+      font-family: 'Nunito', sans-serif;
+      font-size: 1rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .quiz-option:hover { border-color: var(--blue); background: #f0f7ff; }
+    .quiz-option.correct { border-color: var(--green); background: #e8f5e9; }
+    .quiz-option.wrong { border-color: var(--red); background: #ffebee; }
+
+    .quiz-score { margin-top: 16px; font-size: 1rem; color: #777; }
+
+    .quiz-next {
+      margin-top: 16px;
+      padding: 12px 32px;
+      border: none;
+      border-radius: 50px;
+      background: linear-gradient(135deg, var(--blue), var(--teal));
+      color: white;
+      font-family: 'Nunito', sans-serif;
+      font-size: 1rem;
+      font-weight: 700;
+      cursor: pointer;
+      display: none;
+    }
+
+    .quiz-next:hover { transform: scale(1.05); }
+
+    .quiz-toggle {
+      padding: 12px 28px;
+      border: none;
+      border-radius: 50px;
+      background: linear-gradient(135deg, var(--orange), var(--pink));
+      color: white;
+      font-family: 'Nunito', sans-serif;
+      font-size: 1rem;
+      font-weight: 700;
+      cursor: pointer;
+      margin-bottom: 16px;
+    }
+
+    .quiz-toggle:hover { transform: scale(1.05); }
+
+    /* Footer */
+    .footer {
+      text-align: center;
+      padding: 32px 20px;
+      color: #aaa;
+      font-size: 0.85rem;
+    }
+
+    /* Responsive */
+    @media (max-width: 600px) {
+      .header h1 { font-size: 1.4rem; }
+      .cards-grid { grid-template-columns: 1fr; }
+      .word-card .chinese { font-size: 2rem; }
+      .quiz-options { grid-template-columns: 1fr; }
+      .nav { top: 100px; }
+    }
+
+    /* Animations */
+    .fade-in { animation: fadeIn 0.4s ease; }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .hidden { display: none !important; }
+
+    /* Nav chapter colors — assigned dynamically via nth-child color cycling */
+    .nav-btn:nth-child(7n+1) { background: var(--pink); }
+    .nav-btn:nth-child(7n+2) { background: var(--orange); }
+    .nav-btn:nth-child(7n+3) { background: var(--yellow); color: #333; }
+    .nav-btn:nth-child(7n+4) { background: var(--green); }
+    .nav-btn:nth-child(7n+5) { background: var(--blue); }
+    .nav-btn:nth-child(7n+6) { background: var(--purple); }
+    .nav-btn:nth-child(7n+0) { background: var(--teal); }
+    .nav-btn.instructions-btn { background: #666 !important; color: white !important; }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <h1>Basic Chinese - 基本华文</h1>
+    <p>Click any card to hear Chinese, then English!</p>
+    <div class="level-selector">
+      <button class="level-btn active" data-level="1">Level 1 - Words</button>
+      <button class="level-btn" data-level="2">Level 2 - Phrases</button>
+    </div>
+  </div>
+
+  <nav class="nav" id="nav">
+    <!-- Dynamically generated -->
+  </nav>
+
+  <div class="container" id="content"></div>
+
+  <div class="footer">
+    Made with love for little learners
+  </div>
+
+<script src="level1.js"></script>
+<script src="level2.js"></script>
+<script>
+// ═══════════════════════════════════════════════════════════
+// APP STATE
+// ═══════════════════════════════════════════════════════════
+let currentLevel = 1;
+let currentChapter = null;
+let learnedWords = JSON.parse(localStorage.getItem('learnedWords') || '{}');
+let quizMode = false;
+let quizState = {};
+
+function getLevelData() {
+  return currentLevel === 1 ? level1Data : level2Data;
+}
+
+function getTotalWords() {
+  return Object.values(getLevelData()).reduce((sum, ch) => sum + ch.words.length, 0);
+}
+
+function getLearnedCount() {
+  const prefix = `L${currentLevel}-`;
+  return Object.keys(learnedWords).filter(k => k.startsWith(prefix)).length;
+}
+
+// ═══════════════════════════════════════════════════════════
+// SPEECH SYNTHESIS
+// ═══════════════════════════════════════════════════════════
+function speak(text, lang) {
+  window.speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(text);
+  u.lang = lang;
+  u.rate = lang === 'zh-CN' ? 0.8 : 0.9;
+  u.pitch = 1.1;
+  const voices = window.speechSynthesis.getVoices();
+  const match = voices.find(v => v.lang.startsWith(lang.split('-')[0]));
+  if (match) u.voice = match;
+  window.speechSynthesis.speak(u);
+  return u;
+}
+
+function speakBoth(chinese, english) {
+  window.speechSynthesis.cancel();
+
+  const cnU = new SpeechSynthesisUtterance(chinese);
+  cnU.lang = 'zh-CN';
+  cnU.rate = 0.75;
+  cnU.pitch = 1.1;
+
+  const enU = new SpeechSynthesisUtterance(english);
+  enU.lang = 'en-US';
+  enU.rate = 0.9;
+
+  const voices = window.speechSynthesis.getVoices();
+  const cnV = voices.find(v => v.lang.startsWith('zh'));
+  const enV = voices.find(v => v.lang.startsWith('en'));
+  if (cnV) cnU.voice = cnV;
+  if (enV) enU.voice = enV;
+
+  window.speechSynthesis.speak(cnU);
+  cnU.onend = () => {
+    setTimeout(() => window.speechSynthesis.speak(enU), 1000);
+  };
+}
+
+if (window.speechSynthesis) {
+  window.speechSynthesis.getVoices();
+  window.speechSynthesis.onvoiceschanged = () => window.speechSynthesis.getVoices();
+}
+
+// ═══════════════════════════════════════════════════════════
+// NAVIGATION
+// ═══════════════════════════════════════════════════════════
+function buildNav() {
+  const nav = document.getElementById('nav');
+  const data = getLevelData();
+  const keys = Object.keys(data);
+
+  let html = '';
+  keys.forEach((key, i) => {
+    const ch = data[key];
+    const isActive = key === currentChapter ? ' active' : '';
+    html += `<button class="nav-btn${isActive}" data-chapter="${key}">${ch.emoji} ${ch.title}</button>`;
+  });
+  html += `<button class="nav-btn instructions-btn${currentChapter === 'instructions' ? ' active' : ''}" data-chapter="instructions">How to Add Words</button>`;
+  nav.innerHTML = html;
+}
+
+function switchLevel(level) {
+  currentLevel = level;
+  document.querySelectorAll('.level-btn').forEach(b => b.classList.remove('active'));
+  document.querySelector(`.level-btn[data-level="${level}"]`).classList.add('active');
+
+  const keys = Object.keys(getLevelData());
+  currentChapter = keys[0];
+  quizMode = false;
+  buildNav();
+  renderChapter(currentChapter);
+}
+
+// Level selector clicks
+document.querySelector('.level-selector').addEventListener('click', (e) => {
+  const btn = e.target.closest('.level-btn');
+  if (!btn || btn.classList.contains('active')) return;
+  switchLevel(parseInt(btn.dataset.level));
+});
+
+// Chapter nav clicks
+document.getElementById('nav').addEventListener('click', (e) => {
+  const btn = e.target.closest('.nav-btn');
+  if (!btn) return;
+
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+
+  currentChapter = btn.dataset.chapter;
+  quizMode = false;
+  renderChapter(currentChapter);
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+});
+
+// ═══════════════════════════════════════════════════════════
+// RENDERING
+// ═══════════════════════════════════════════════════════════
+function markLearned(key) {
+  learnedWords[key] = true;
+  localStorage.setItem('learnedWords', JSON.stringify(learnedWords));
+}
+
+function escapeAttr(str) {
+  return str.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+}
+
+function renderChapter(chapterKey) {
+  if (chapterKey === 'instructions') {
+    renderInstructions();
+    return;
+  }
+
+  const data = getLevelData();
+  const chapter = data[chapterKey];
+  if (!chapter) return;
+
+  const container = document.getElementById('content');
+  const total = getTotalWords();
+  const learned = getLearnedCount();
+  const levelLabel = currentLevel === 1 ? 'Level 1' : 'Level 2';
+
+  let html = `
+    <div class="progress-section fade-in">
+      <span class="label">${levelLabel}:</span>
+      <div class="progress-bar">
+        <div class="progress-fill" style="width: ${total ? (learned / total * 100) : 0}%"></div>
+      </div>
+      <span class="count">${learned} / ${total}</span>
+    </div>
+
+    <div class="chapter-header fade-in">
+      <span class="emoji">${chapter.emoji}</span>
+      <h2>${chapter.title} - ${chapter.titleCn}</h2>
+      <p>${chapter.description}</p>
+    </div>
+
+    <div style="text-align:center; margin-bottom: 20px;">
+      <button class="quiz-toggle" onclick="toggleQuiz()">${quizMode ? '📖 Study Mode' : '🧠 Quiz Me!'}</button>
+    </div>
+  `;
+
+  if (quizMode) {
+    html += renderQuiz(chapterKey);
+  } else {
+    html += `<div class="cards-grid">`;
+    chapter.words.forEach((word, i) => {
+      const wordKey = `L${currentLevel}-${chapterKey}-${i}`;
+      const isLearned = learnedWords[wordKey];
+      const colorSwatch = word.color
+        ? `<div class="color-swatch" style="background:${word.color}"></div>`
+        : '';
+
+      html += `
+        <div class="word-card fade-in" style="animation-delay: ${Math.min(i * 0.03, 0.5)}s"
+             onclick="cardClicked('${escapeAttr(chapterKey)}', ${i})">
+          ${colorSwatch}
+          <div class="chinese">${word.chinese}</div>
+          <div class="pinyin">${word.pinyin}</div>
+          <div class="english">${word.english}</div>
+          <div class="audio-hint">
+            🔊 Click to listen ${isLearned ? ' ✅' : ''}
+          </div>
+        </div>
+      `;
+    });
+    html += '</div>';
+  }
+
+  container.innerHTML = html;
+}
+
+function cardClicked(chapterKey, index) {
+  const data = getLevelData();
+  const word = data[chapterKey].words[index];
+  const cleanEnglish = word.english.replace(/[^\w\s',.?!]/g, '');
+  speakBoth(word.chinese, cleanEnglish);
+  markLearned(`L${currentLevel}-${chapterKey}-${index}`);
+
+  // Update progress bar
+  const total = getTotalWords();
+  const learned = getLearnedCount();
+  const fill = document.querySelector('.progress-fill');
+  const count = document.querySelector('.count');
+  if (fill) fill.style.width = `${total ? (learned / total * 100) : 0}%`;
+  if (count) count.textContent = `${learned} / ${total}`;
+
+  // Update the specific card's hint to show checkmark
+  const cards = document.querySelectorAll('.word-card');
+  if (cards[index]) {
+    const hint = cards[index].querySelector('.audio-hint');
+    if (hint && !hint.textContent.includes('✅')) {
+      hint.innerHTML = '🔊 Click to listen ✅';
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// QUIZ MODE
+// ═══════════════════════════════════════════════════════════
+function toggleQuiz() {
+  quizMode = !quizMode;
+  if (quizMode) {
+    quizState = { index: 0, score: 0, answered: false };
+  }
+  renderChapter(currentChapter);
+}
+
+function renderQuiz(chapterKey) {
+  const data = getLevelData();
+  const chapter = data[chapterKey];
+  const words = chapter.words;
+  const { index, score } = quizState;
+
+  if (index >= words.length) {
+    return `
+      <div class="quiz-section fade-in">
+        <h3>🎉 Quiz Complete!</h3>
+        <div class="quiz-chinese" style="font-size:3rem">${score}/${words.length}</div>
+        <p style="font-size:1.2rem; color:#777">
+          ${score === words.length ? 'Perfect score! Amazing! 🌟' :
+            score >= words.length * 0.7 ? 'Great job! Keep practicing! 👏' :
+            'Keep learning! You can do it! 💪'}
+        </p>
+        <button class="quiz-toggle" onclick="quizState={index:0,score:0,answered:false}; renderChapter('${escapeAttr(chapterKey)}')">
+          Try Again
+        </button>
+      </div>
+    `;
+  }
+
+  const word = words[index];
+  // Pick 3 wrong answers from same chapter
+  const otherWords = words.filter((_, i) => i !== index);
+  const shuffled = otherWords.sort(() => Math.random() - 0.5).slice(0, 3);
+  const options = [...shuffled.map(w => w.english), word.english].sort(() => Math.random() - 0.5);
+
+  return `
+    <div class="quiz-section fade-in">
+      <h3>What does this mean?</h3>
+      <div class="quiz-chinese">${word.chinese}</div>
+      <div style="color: var(--blue); font-size: 1.05rem; margin-bottom: 8px">${word.pinyin}</div>
+      <button class="audio-btn" onclick="speak('${escapeAttr(word.chinese)}', 'zh-CN')" style="margin: 0 auto 12px;">
+        🔊 Listen
+      </button>
+      <div class="quiz-options">
+        ${options.map(opt => `
+          <button class="quiz-option" onclick="checkAnswer(this, '${escapeAttr(opt)}', '${escapeAttr(word.english)}', '${escapeAttr(chapterKey)}')">
+            ${opt}
+          </button>
+        `).join('')}
+      </div>
+      <div class="quiz-score">Question ${index + 1} of ${words.length} | Score: ${score}</div>
+      <button class="quiz-next" id="quizNext" onclick="nextQuestion('${escapeAttr(chapterKey)}')">
+        Next →
+      </button>
+    </div>
+  `;
+}
+
+function checkAnswer(btn, selected, correct, chapterKey) {
+  if (quizState.answered) return;
+  quizState.answered = true;
+
+  document.querySelectorAll('.quiz-option').forEach(b => {
+    if (b.textContent.trim() === correct) b.classList.add('correct');
+    else b.classList.add('wrong');
+  });
+
+  if (selected === correct) {
+    quizState.score++;
+    speak('对了', 'zh-CN');
+  } else {
+    speak('再试试', 'zh-CN');
+  }
+
+  document.getElementById('quizNext').style.display = 'inline-block';
+}
+
+function nextQuestion(chapterKey) {
+  quizState.index++;
+  quizState.answered = false;
+  renderChapter(chapterKey);
+}
+
+// ═══════════════════════════════════════════════════════════
+// INSTRUCTIONS PAGE
+// ═══════════════════════════════════════════════════════════
+function renderInstructions() {
+  document.getElementById('content').innerHTML = `
+    <div class="instructions fade-in">
+      <h2>📖 How to Add New Vocabulary</h2>
+
+      <p>Vocabulary is stored in two separate files:</p>
+      <ul>
+        <li><code>level1.js</code> — Single words (Level 1)</li>
+        <li><code>level2.js</code> — Phrases and sentences (Level 2)</li>
+      </ul>
+
+      <h3>Step 1: Open the data file</h3>
+      <p>Open <code>level1.js</code> or <code>level2.js</code> in any text editor.</p>
+
+      <h3>Step 2: Add a word to an existing chapter</h3>
+      <p>Each chapter has a <code>words</code> array. Add a new entry:</p>
+      <pre>{
+  chinese: "老师",      // Chinese characters
+  pinyin: "lǎo shī",   // Pinyin with tone marks
+  english: "Teacher"    // English translation
+}</pre>
+
+      <div class="tip">
+        <strong>💡 Tip:</strong> For the Colors chapter, add an optional
+        <code>color</code> property with a hex code like <code>"#FF5733"</code>
+        to show a color swatch.
+      </div>
+
+      <h3>Step 3: Create a new chapter</h3>
+      <p>Add a new key to the <code>level1Data</code> or <code>level2Data</code> object:</p>
+      <pre>bodyParts: {
+  title: "Body Parts",
+  titleCn: "身体部位",
+  emoji: "🦶",
+  description: "Learn about your body!",
+  words: [
+    { chinese: "头", pinyin: "tóu", english: "Head" },
+    { chinese: "手", pinyin: "shǒu", english: "Hand" },
+  ]
+}</pre>
+      <p>The navigation buttons are generated automatically from the data — no HTML changes needed!</p>
+
+      <h3>Pinyin Tone Marks Reference</h3>
+      <pre>ā á ǎ à   ē é ě è   ī í ǐ ì
+ō ó ǒ ò   ū ú ǔ ù   ǖ ǘ ǚ ǜ</pre>
+
+      <h3>🔊 About the Audio</h3>
+      <p>This app uses the browser's <strong>Web Speech API</strong>. Clicking a card speaks
+      Chinese first, pauses for 1 second, then speaks the English translation. For best
+      results, use <strong>Google Chrome</strong> on a computer.</p>
+
+      <h3>📊 Progress Tracking</h3>
+      <p>Progress is tracked separately for Level 1 and Level 2 using local storage.
+      Your progress is saved even if you close the browser.</p>
+    </div>
+  `;
+}
+
+// ═══════════════════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════════════════
+currentChapter = Object.keys(getLevelData())[0];
+buildNav();
+renderChapter(currentChapter);
+</script>
+</body>
+</html>
