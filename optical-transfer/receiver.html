@@ -38,6 +38,7 @@ video{width:100%;border-radius:6px;display:block;background:#000}
 #btn-restart{display:none;background:#c44}
 #btn-reset{display:none;background:#666;padding:10px 20px;font-size:.85em}
 #btn-log{display:none;background:#445;padding:10px 20px;font-size:.85em}
+#btn-cancel{display:none;background:#b33;padding:14px 28px;font-size:1em}
 #detail-box{
   width:min(420px,92vw);background:rgba(255,255,255,.04);border-radius:6px;
   padding:10px 12px;margin:8px 0;font-size:.72em;color:#999;line-height:1.6;
@@ -69,6 +70,7 @@ video{width:100%;border-radius:6px;display:block;background:#000}
 <button class="btn" id="btn-resume">&#9654; Resume</button>
 <button class="btn" id="btn-restart">&#8634; Restart</button>
 <button class="btn" id="btn-reset">&#8634; Reset</button>
+<button class="btn" id="btn-cancel">&#10006; Cancel &amp; Save Log</button>
 <button class="btn" id="btn-log">&#128196; Export Log</button>
 <canvas id="debug-canvas" width="120" height="120"></canvas>
 <div id="debug-info"></div>
@@ -743,6 +745,76 @@ function dlog(type, msg, extra) {
   btnLog.style.display = 'inline-block';
 }
 
+// ─── Enhanced Diagnostics ─────────────────────────────────────────────────
+let diagSnapshotFrame = null;      // base64 low-res camera frame on sustained failure
+let diagLastSnapshotTime = 0;      // for periodic snapshots
+let diagConsecMarkerFail = 0;      // consecutive frames with < 3 markers
+let diagMarkerFoundRate = [0, 0];  // [found, total] for marker detection rate
+let diagAvgMargin = 0;             // running average of color classification margin
+let diagMarginSamples = 0;
+let diagAffineLast = null;         // last affine transform for logging
+let diagWbLast = [0, 0, 0];       // last white balance sample
+let diagReprojErr = 0;             // last reprojection error in pixels
+
+function diagCaptureSnapshot(canvas, w, h) {
+  // Save a low-res JPEG snapshot for debugging
+  const snapW = Math.min(w, 160);
+  const snapH = Math.round(h * snapW / w);
+  const sc = document.createElement('canvas');
+  sc.width = snapW; sc.height = snapH;
+  sc.getContext('2d').drawImage(canvas, 0, 0, snapW, snapH);
+  return sc.toDataURL('image/jpeg', 0.5);
+}
+
+function diagComputeReprojError(A, srcPts, dstPts) {
+  // Measure how well the affine transform maps src → dst
+  let totalErr = 0;
+  for (let i = 0; i < srcPts.length; i++) {
+    const [px, py] = applyAffine(A, srcPts[i][0], srcPts[i][1]);
+    const dx = px - dstPts[i][0], dy = py - dstPts[i][1];
+    totalErr += Math.sqrt(dx * dx + dy * dy);
+  }
+  return totalErr / srcPts.length;
+}
+
+function diagComputeMargin(r, g, b) {
+  // Return gap between nearest and second-nearest palette distance
+  const dists = [
+    r*r + g*g + b*b,
+    (r-255)*(r-255) + g*g + b*b,
+    r*r + (g-255)*(g-255) + b*b,
+    r*r + g*g + (b-255)*(b-255),
+  ];
+  dists.sort((a, b) => a - b);
+  return dists[1] - dists[0]; // bigger = more confident
+}
+
+function diagPeriodicSnapshot() {
+  // Log a compact diagnostic snapshot every ~30 seconds
+  const now = Date.now();
+  if (now - diagLastSnapshotTime < 30000) return;
+  diagLastSnapshotTime = now;
+  const elapsed = ((now - sessionStart) / 1000).toFixed(1);
+  const markerRate = diagMarkerFoundRate[1] > 0
+    ? Math.round(diagMarkerFoundRate[0] / diagMarkerFoundRate[1] * 100) : 0;
+  const rsRate = rsOk + rsFail > 0 ? Math.round(rsOk / (rsOk + rsFail) * 100) : 0;
+  const symbols = decoder ? decoder.decodedCount : 0;
+  const K = cfg ? cfg.K : '?';
+  const fpsEff = totalFramesCaptured > 0
+    ? (totalFramesCaptured / ((now - (t0 || sessionStart)) / 1000)).toFixed(1) : '0';
+  dlog('SNAPSHOT', `periodic`, {
+    elapsed: elapsed + 's',
+    markers_found_pct: markerRate + '%',
+    reproj_err: diagReprojErr.toFixed(1) + 'px',
+    wb: diagWbLast.map(v => Math.round(v)),
+    avg_margin: Math.round(diagAvgMargin),
+    rs_rate: rsRate + '%',
+    symbols: `${symbols}/${K}`,
+    fps_eff: fpsEff,
+    consec_marker_fail: diagConsecMarkerFail,
+  });
+}
+
 // ─── Audio Feedback ───────────────────────────────────────────────────────
 let audioCtx = null;
 let lastBeepMs = 0;
@@ -763,6 +835,8 @@ function beep(freq = 880, dur = 0.05, vol = 0.12) {
 }
 
 function updateUI() {
+  // Cancel button visible during active capture
+  btnCancel.style.display = (state === S.SEARCHING || state === S.DECODING) ? 'inline-block' : 'none';
   // Reset button visible whenever camera is active
   btnReset.style.display = (state !== S.SEARCHING || rsOk + rsFail > 0) ? 'inline-block' : 'none';
 
@@ -855,8 +929,34 @@ async function processFrame(imgData, w, h) {
     elStats.textContent = `${found.length<3 ? 'Missing: '+missing.join(',') : 'ALL 3 FOUND'} | ${cStr} | ${w}x${h}`;
   }
 
+  // ── Marker detection diagnostics ──
+  diagMarkerFoundRate[1]++;
+  if (found.length >= 3) {
+    diagMarkerFoundRate[0]++;
+    diagConsecMarkerFail = 0;
+  } else {
+    diagConsecMarkerFail++;
+    // Capture a snapshot after 45 consecutive failures (~3s) for debugging
+    if (diagConsecMarkerFail === 45) {
+      diagSnapshotFrame = diagCaptureSnapshot(pcv, w, h);
+      dlog('MARKER_FAIL', `No markers for ${diagConsecMarkerFail} frames — snapshot captured`, {
+        missing: ['TL','TR','BL'].filter(k => !markers[k]),
+        counts: rawCounts,
+        frame_size: `${w}x${h}`,
+        has_snapshot: true,
+      });
+    }
+    // Log every 90 frames of sustained failure (~6s)
+    if (diagConsecMarkerFail > 0 && diagConsecMarkerFail % 90 === 0) {
+      dlog('MARKER_FAIL', `Still no markers after ${diagConsecMarkerFail} frames`, {
+        counts: rawCounts,
+      });
+    }
+  }
+
   if (found.length < 3) {
     if (state === S.SEARCHING) updateUI();
+    diagPeriodicSnapshot();
     return;
   }
 
@@ -875,6 +975,15 @@ async function processFrame(imgData, w, h) {
   const Ai = invertAffine(A);
   if (!Ai) return;
 
+  // ── Affine quality diagnostic ──
+  diagReprojErr = diagComputeReprojError(A, srcPts, dstPts);
+  diagAffineLast = A;
+  if (diagReprojErr > 8 && totalFramesCaptured % 30 === 0) {
+    dlog('AFFINE_WARN', `High reprojection error: ${diagReprojErr.toFixed(1)}px`, {
+      markers: { TL: markers.TL.map(v=>Math.round(v)), TR: markers.TR.map(v=>Math.round(v)), BL: markers.BL.map(v=>Math.round(v)) },
+    });
+  }
+
   // 3. White balance: compute where BR marker SHOULD be via affine, sample there
   const brCanonical = [(N - 1.5) * CELL_PX, (N - 1.5) * CELL_PX];
   const [brCamX, brCamY] = applyAffine(Ai, brCanonical[0], brCanonical[1]);
@@ -882,6 +991,7 @@ async function processFrame(imgData, w, h) {
   // Only apply white balance if the sample looks white-ish (low saturation)
   const wMax = Math.max(wr, wg, wb), wMin = Math.min(wr, wg, wb);
   const wSat = wMax > 0 ? (wMax - wMin) / wMax : 0;
+  diagWbLast = [wr, wg, wb];
   let corrR = 1, corrG = 1, corrB = 1;
   if (wSat < 0.3 && wMax > 80) {
     corrR = wr > 10 ? 255 / wr : 1;
@@ -906,6 +1016,10 @@ async function processFrame(imgData, w, h) {
       b = Math.min(255, b * corrB);
       cells4.push(classifyColor(r, g, b));
       cells2.push((r * 299 + g * 587 + b * 114) / 1000 > 127 ? 1 : 0);
+      // Track classification confidence margin
+      const margin = diagComputeMargin(r, g, b);
+      diagAvgMargin = (diagAvgMargin * diagMarginSamples + margin) / (diagMarginSamples + 1);
+      diagMarginSamples++;
     }
   }
   // Active cell array: use luminance classification when in 2-color mode
@@ -1002,7 +1116,7 @@ async function processFrame(imgData, w, h) {
       const rsMsg = `RS FAIL #${rsFail} | ${pctBlack}% blk`;
       elStats.textContent = `${found.length<3 ? 'Missing:'+['TL','TR','BL'].filter(k=>!markers[k]).join(',') : '3 FOUND'} | ${cStr} | ${rsMsg}`;
       dbgInfo.textContent = `${rsMsg} | ${distStr}`;
-      if (rsFail <= 50 || rsFail % 25 === 0) dlog('RS_FAIL', rsMsg, { dist: distStr, markers: found.join(',') });
+      if (rsFail <= 50 || rsFail % 25 === 0) dlog('RS_FAIL', rsMsg, { dist: distStr, markers: found.join(','), reproj: diagReprojErr.toFixed(1), wb: diagWbLast.map(v=>Math.round(v)), margin: Math.round(diagAvgMargin) });
       return;
     }
     rsOk++;
@@ -1052,7 +1166,13 @@ async function processFrame(imgData, w, h) {
   if (state !== S.DECODING) return;
 
   const result = decodeFrame(cells, cfg.rs, cfg.num_colors);
-  if (!result) { rsFail++; updateUI(); return; }
+  if (!result) {
+    rsFail++;
+    if (rsFail <= 20 || rsFail % 50 === 0) dlog('RS_FAIL', `Decode #${rsOk+rsFail}`, { dist: `B:${colorDist[0]} R:${colorDist[1]} G:${colorDist[2]} Bl:${colorDist[3]}`, reproj: diagReprojErr.toFixed(1), wb: diagWbLast.map(v=>Math.round(v)), margin: Math.round(diagAvgMargin) });
+    diagPeriodicSnapshot();
+    updateUI();
+    return;
+  }
   rsOk++;
 
   if (result.type === 0x00) {
@@ -1086,6 +1206,7 @@ async function processFrame(imgData, w, h) {
     decoder.addSymbol(result.index, result.payload.slice(0, cfg.block_size));
     totalFramesCaptured++;
     if (decoder.decodedCount > prevDecoded) beep();
+    diagPeriodicSnapshot();
     updateUI();
 
     // Log at 25% milestones
@@ -1257,17 +1378,53 @@ function fullReset() {
 btnRestart.onclick = fullReset;
 btnReset.onclick = fullReset;
 
-btnLog.onclick = () => {
-  const lines = [
+function buildLogExport() {
+  const elapsed = ((Date.now() - sessionStart) / 1000).toFixed(1);
+  const markerRate = diagMarkerFoundRate[1] > 0
+    ? Math.round(diagMarkerFoundRate[0] / diagMarkerFoundRate[1] * 100) : 0;
+  const rsRate = rsOk + rsFail > 0 ? Math.round(rsOk / (rsOk + rsFail) * 100) : 0;
+  const stateNames = ['SEARCHING','DECODING','VERIFYING','COMPLETE','RETRY'];
+
+  const header = [
     `# Optical Transfer Receiver — Diagnostic Log`,
     `# Generated: ${new Date().toISOString()}`,
     `# User-Agent: ${navigator.userAgent}`,
+    `# Screen: ${screen.width}x${screen.height} @${devicePixelRatio}x`,
+    `# Camera resolution: ${vid.videoWidth}x${vid.videoHeight}`,
+    `#`,
+    `# === SESSION SUMMARY ===`,
+    `# State at export: ${stateNames[state] || state}`,
+    `# Total elapsed: ${elapsed}s`,
+    `# Frames captured: ${totalFramesCaptured}`,
+    `# RS decode: OK=${rsOk}  Fail=${rsFail}  Rate=${rsRate}%`,
+    `# Marker detection rate: ${markerRate}% (${diagMarkerFoundRate[0]}/${diagMarkerFoundRate[1]})`,
+    `# Max consecutive marker failures: ${diagConsecMarkerFail}`,
+    `# Avg color margin: ${Math.round(diagAvgMargin)} (higher=more confident)`,
+    `# Last reproj error: ${diagReprojErr.toFixed(1)}px`,
+    `# Last WB sample (R,G,B): ${diagWbLast.map(v=>Math.round(v)).join(',')}`,
+    `# Config: ${cfg ? `grid=${cfg.grid_size} colors=${cfg.num_colors} ecc=${cfg.ecc_percent}% K=${cfg.K} bs=${cfg.block_size}` : 'not received'}`,
+    `# File: ${cfg ? `${cfg.filename} (${cfg.file_size} bytes)` : 'unknown'}`,
+    `# Decoder progress: ${decoder ? `${decoder.decodedCount}/${cfg.K} blocks (${Math.round(decoder.progress()*100)}%)` : 'not started'}`,
     `# Entries: ${diagLog.length}`,
+    `#`,
+    `# === EVENT LOG ===`,
     '',
-    ...diagLog.map(e =>
-      `[${e.t}s] [${e.type}] ${e.msg}` + (e.extra ? '  ' + JSON.stringify(e.extra) : ''))
   ];
-  const blob = new Blob([lines.join('\n')], { type: 'text/plain' });
+
+  const events = diagLog.map(e =>
+    `[${e.t}s] [${e.type}] ${e.msg}` + (e.extra ? '  ' + JSON.stringify(e.extra) : ''));
+
+  // Append camera snapshot if we have one
+  const snapshotSection = diagSnapshotFrame
+    ? [``, `# === CAMERA SNAPSHOT (base64 JPEG, from sustained marker failure) ===`, diagSnapshotFrame]
+    : [];
+
+  return [...header, ...events, ...snapshotSection].join('\n');
+}
+
+function exportLog() {
+  const logText = buildLogExport();
+  const blob = new Blob([logText], { type: 'text/plain' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -1275,6 +1432,34 @@ btnLog.onclick = () => {
   document.body.appendChild(a); a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
+}
+
+btnLog.onclick = exportLog;
+
+// Cancel & Save Log: stop everything, export log
+const btnCancel = document.getElementById('btn-cancel');
+btnCancel.onclick = () => {
+  dlog('STATE', 'User cancelled session', {
+    state: ['SEARCHING','DECODING','VERIFYING','COMPLETE','RETRY'][state],
+    rsOk, rsFail,
+    decoded: decoder ? decoder.decodedCount : 0,
+    K: cfg ? cfg.K : '?',
+  });
+
+  // Stop camera
+  if (vid.srcObject) vid.srcObject.getTracks().forEach(t => t.stop());
+  if (captureTimer) { clearInterval(captureTimer); captureTimer = null; }
+
+  // Export log
+  exportLog();
+
+  // Update UI
+  document.body.style.backgroundColor = '#331a1a';
+  elStatus.textContent = 'CANCELLED';
+  elSub.textContent = 'Session stopped — diagnostic log saved';
+  btnCancel.style.display = 'none';
+  btnRestart.style.display = 'inline-block';
+  btnLog.style.display = 'inline-block';
 };
 </script>
 </body>
