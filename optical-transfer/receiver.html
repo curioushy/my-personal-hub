@@ -1070,29 +1070,37 @@ async function processFrame(imgData, w, h) {
     });
   }
 
-  // 3. White balance: compute where BR marker SHOULD be via affine, sample there
-  const brCanonical = [(N - 1.5) * CELL_PX, (N - 1.5) * CELL_PX];
-  const [brCamX, brCamY] = applyAffine(Ai, brCanonical[0], brCanonical[1]);
-  const [wr, wg, wb] = samplePatch(imgData.data, w, h, brCamX, brCamY);
-  // Only apply white balance if the sample looks white-ish (low saturation)
-  const wMax = Math.max(wr, wg, wb), wMin = Math.min(wr, wg, wb);
-  const wSat = wMax > 0 ? (wMax - wMin) / wMax : 0;
-  diagWbLast = [wr, wg, wb];
-  let corrR = 1, corrG = 1, corrB = 1;
-  if (wSat < 0.3 && wMax > 80) {
-    corrR = wr > 10 ? 255 / wr : 1;
-    corrG = wg > 10 ? 255 / wg : 1;
-    corrB = wb > 10 ? 255 / wb : 1;
-  }
+  // 3. Color calibration: sample the 3 detected markers as reference colors
+  // Expected: TL=Cyan(0,255,255), TR=Magenta(255,0,255), BL=Yellow(255,255,0)
+  // Each channel has 2 markers that should be HIGH (255) and 1 that should be LOW (0)
+  const [tlR, tlG, tlB] = samplePatch(imgData.data, w, h, markers.TL[0], markers.TL[1]);
+  const [trR, trG, trB] = samplePatch(imgData.data, w, h, markers.TR[0], markers.TR[1]);
+  const [blR, blG, blB] = samplePatch(imgData.data, w, h, markers.BL[0], markers.BL[1]);
 
-  // ── WB dark-frame guard ──
-  // If the computed BR position is too dark, the affine is likely mapping to
-  // the wrong area (false positive markers). Skip RS decode for this frame.
-  if (wMax < 30) {
+  // Per-channel linear correction: corrected = (observed - low) / (high - low) * 255
+  const highR = (trR + blR) / 2, lowR = tlR;   // R: TR+BL high, TL low
+  const highG = (tlG + blG) / 2, lowG = trG;    // G: TL+BL high, TR low
+  const highB = (tlB + trB) / 2, lowB = blB;    // B: TL+TR high, BL low
+
+  let corrR = 1, corrG = 1, corrB = 1;
+  let offR = 0, offG = 0, offB = 0;
+  const MIN_CAL_RANGE = 60; // need at least this gap between high/low to trust
+
+  if (highR - lowR > MIN_CAL_RANGE) { offR = lowR; corrR = 255 / (highR - lowR); }
+  if (highG - lowG > MIN_CAL_RANGE) { offG = lowG; corrG = 255 / (highG - lowG); }
+  if (highB - lowB > MIN_CAL_RANGE) { offB = lowB; corrB = 255 / (highB - lowB); }
+
+  diagWbLast = [Math.round(highR - lowR), Math.round(highG - lowG), Math.round(highB - lowB)];
+
+  // ── Dark-frame guard ──
+  // If marker samples are too dark, affine is likely mapping to wrong area
+  const markerBrightness = Math.max(highR, highG, highB);
+  if (markerBrightness < 30) {
     if (totalFramesCaptured % 60 === 0) {
-      dlog('DARK_FRAME', 'BR position too dark — affine likely wrong', {
-        wb: diagWbLast.map(v=>Math.round(v)),
-        brCam: [Math.round(brCamX), Math.round(brCamY)],
+      dlog('DARK_FRAME', 'Markers too dark — affine likely wrong', {
+        tl: [Math.round(tlR), Math.round(tlG), Math.round(tlB)],
+        tr: [Math.round(trR), Math.round(trG), Math.round(trB)],
+        bl: [Math.round(blR), Math.round(blG), Math.round(blB)],
       });
     }
     diagPeriodicSnapshot();
@@ -1111,9 +1119,9 @@ async function processFrame(imgData, w, h) {
       const cy = (row + 0.5) * CELL_PX;
       const [camX, camY] = applyAffine(Ai, cx, cy);
       let [r, g, b] = samplePatch(imgData.data, w, h, camX, camY);
-      r = Math.min(255, r * corrR);
-      g = Math.min(255, g * corrG);
-      b = Math.min(255, b * corrB);
+      r = Math.max(0, Math.min(255, (r - offR) * corrR));
+      g = Math.max(0, Math.min(255, (g - offG) * corrG));
+      b = Math.max(0, Math.min(255, (b - offB) * corrB));
       cells4.push(classifyColor(r, g, b));
       cells2.push((r * 299 + g * 587 + b * 114) / 1000 > 127 ? 1 : 0);
       // Track classification confidence margin
@@ -1125,7 +1133,7 @@ async function processFrame(imgData, w, h) {
   // Active cell array: use luminance classification when in 2-color mode
   const cells = (cfg && cfg.num_colors === 2) ? cells2 : cells4;
 
-  // 5. Draw overlay — 3 detected corners + computed BR
+  // 5. Draw overlay — 3 detected corners + calibration info
   octx.clearRect(0, 0, ovl.width, ovl.height);
   const sx = ovl.width / w, sy = ovl.height / h;
   const clr = { TL: 'cyan', TR: 'magenta', BL: 'yellow' };
@@ -1137,16 +1145,10 @@ async function processFrame(imgData, w, h) {
     octx.fillStyle = clr[k]; octx.font = 'bold 12px monospace';
     octx.fillText(k, dx + 10, dy - 4);
   }
-  // Draw computed BR position (derived, not detected)
-  octx.beginPath(); octx.arc(brCamX * sx, brCamY * sy, 6, 0, Math.PI * 2);
-  octx.strokeStyle = 'rgba(255,255,255,0.5)'; octx.lineWidth = 2; octx.stroke();
-  octx.fillStyle = 'rgba(255,255,255,0.6)'; octx.font = 'bold 10px monospace';
-  octx.fillText('br', brCamX * sx + 8, brCamY * sy - 3);
-  // Draw triangle from 3 corners + line to computed BR
+  // Draw triangle from 3 corners
   octx.beginPath();
   octx.moveTo(markers.TL[0]*sx, markers.TL[1]*sy);
   octx.lineTo(markers.TR[0]*sx, markers.TR[1]*sy);
-  octx.lineTo(brCamX*sx, brCamY*sy);
   octx.lineTo(markers.BL[0]*sx, markers.BL[1]*sy);
   octx.closePath();
   octx.strokeStyle = 'rgba(100,255,100,0.5)'; octx.lineWidth = 2; octx.stroke();
@@ -1501,7 +1503,7 @@ function buildLogExport() {
     `# Max consecutive marker failures: ${diagConsecMarkerFail}`,
     `# Avg color margin: ${Math.round(diagAvgMargin)} (higher=more confident)`,
     `# Last TL-TR distance: ${diagReprojErr.toFixed(1)}px`,
-    `# Last WB sample (R,G,B): ${diagWbLast.map(v=>Math.round(v)).join(',')}`,
+    `# Last calibration range (R,G,B): ${diagWbLast.map(v=>Math.round(v)).join(',')}`,
     `# Config: ${cfg ? `grid=${cfg.grid_size} colors=${cfg.num_colors} ecc=${cfg.ecc_percent}% K=${cfg.K} bs=${cfg.block_size}` : 'not received'}`,
     `# File: ${cfg ? `${cfg.filename} (${cfg.file_size} bytes)` : 'unknown'}`,
     `# Decoder progress: ${decoder ? `${decoder.decodedCount}/${cfg.K} blocks (${Math.round(decoder.progress()*100)}%)` : 'not started'}`,

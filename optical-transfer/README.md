@@ -46,7 +46,9 @@ open transmitter.html
 | FPS | 15 | Higher = faster, more missed frames |
 | ECC % | 20 | Higher = more error correction, less payload |
 | Overhead | 1.5x | More fountain symbols = higher decode probability |
-| Display | 720px | Larger = easier for camera |
+| 2-Color B/W | off | 1 bit/cell instead of 2 — slower but far more robust |
+
+**Safe Mode** (⛨ button): presets Grid=16, FPS=5, ECC=50%, Overhead=3x, 2-Color. Use when the camera struggles to decode at default settings.
 
 ## Performance
 
@@ -59,8 +61,8 @@ open transmitter.html
 
 ## Technical Details
 
-- **Encoding:** 4-color cells (Black/Red/Green/Blue) = 2 bits per cell
+- **Encoding:** 4-color cells (Black/Red/Green/Blue) = 2 bits/cell; or 2-color (Black/White) = 1 bit/cell
 - **Error correction:** Reed-Solomon per frame + LT fountain codes across frames
-- **Detection:** Colored corner markers (Cyan/Magenta/Yellow/White) for homography
+- **Detection:** 3 colored corner markers (Cyan TL, Magenta TR, Yellow BL) — 3-point affine transform for perspective correction; 4-cell black border around grid for isolation
 - **Verification:** SHA-256 end-to-end checksum
 - **Zero dependencies:** Transmitter and receiver run entirely in-browser (pako for zlib only)
