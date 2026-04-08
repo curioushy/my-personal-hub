@@ -32,6 +32,7 @@ video{width:100%;border-radius:6px;display:block;background:#000}
 #btn-vid{background:#5a3a9c}
 #btn-dl{display:none;background:#2d9e5a}
 #btn-reset{display:none;background:#666;padding:10px 20px;font-size:.85em}
+#btn-log{display:none;background:#a85;padding:10px 20px;font-size:.85em}
 #detail-box{
   width:min(420px,92vw);background:rgba(255,255,255,.04);border-radius:6px;
   padding:10px 12px;margin:8px 0;font-size:.72em;color:#999;line-height:1.6;
@@ -60,6 +61,7 @@ video{width:100%;border-radius:6px;display:block;background:#000}
 <button class="btn" id="btn-vid">&#128249; Load Video</button>
 <button class="btn" id="btn-dl">&#11015; Download File</button>
 <button class="btn" id="btn-reset">&#8634; Reset</button>
+<button class="btn" id="btn-log">&#128203; Download Log</button>
 <div id="detail-box"></div>
 <div id="finfo"></div>
 <div id="err"></div>
@@ -79,6 +81,54 @@ video{width:100%;border-radius:6px;display:block;background:#000}
 //# sourceMappingURL=/sm/261261d91f249d4079ae119cfa50f739467d90fc365078a671172e0f499e862a.map</script>
 <script>
 'use strict';
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Diagnostic Log
+// ═══════════════════════════════════════════════════════════════════════════
+const diagLog=[];
+let logSampleInterval=50; // log detailed frame info every N frames
+function dlog(msg){
+  const ts=Date.now();
+  diagLog.push({ts,msg});
+}
+function dlogFrame(frameNum,w,h,result){
+  // Always count, but only log detail periodically
+  if(result){
+    // Log every successful QR decode
+    const firstBytes=result.binaryData?result.binaryData.slice(0,12).join(','):'none';
+    diagLog.push({ts:Date.now(),msg:`F${frameNum} [${w}x${h}] QR_OK len=${result.binaryData?result.binaryData.length:0} first12=[${firstBytes}] data="${(result.data||'').slice(0,40)}"`});
+  } else if(frameNum%logSampleInterval===0){
+    diagLog.push({ts:Date.now(),msg:`F${frameNum} [${w}x${h}] QR_FAIL (no QR detected)`});
+  }
+}
+function exportLog(){
+  const lines=['=== QR Transfer Diagnostic Log ===','Generated: '+new Date().toISOString(),'',''];
+  for(const e of diagLog){
+    const t=new Date(e.ts).toISOString().slice(11,23);
+    lines.push(`[${t}] ${e.msg}`);
+  }
+  lines.push('','=== Summary ===');
+  lines.push('Total log entries: '+diagLog.length);
+  lines.push('Total frames processed: '+totalFrames);
+  lines.push('QR codes found: '+qrOk);
+  if(cfg){
+    lines.push('Config received: yes');
+    lines.push('  File: '+cfg.filename);
+    lines.push('  Size: '+cfg.fileSize);
+    lines.push('  K: '+cfg.K+' blocks');
+    lines.push('  Block size: '+cfg.blockSize);
+    if(decoder)lines.push('  Decoded: '+decoder.decodedCount+'/'+cfg.K);
+  } else {
+    lines.push('Config received: no');
+  }
+  const blob=new Blob([lines.join('\n')],{type:'text/plain'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;a.download='qr-diag-'+Date.now()+'.log';
+  document.body.appendChild(a);a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // xorshift32 PRNG — identical to transmitter
@@ -187,7 +237,7 @@ class FountainDecoder {
 // Config parser
 // ═══════════════════════════════════════════════════════════════════════════
 function parseConfig(p){
-  if(p.length<42)return null;
+  if(p.length<42){dlog('parseConfig: payload too short len='+p.length);return null;}
   const dv=new DataView(p.buffer,p.byteOffset,p.byteLength);
   const c={
     fileSize:dv.getUint32(0,false),
@@ -198,10 +248,12 @@ function parseConfig(p){
     filenameLen:p[41],
     filename:''
   };
-  if(c.K===0||c.blockSize===0||c.fileSize===0)return null;
-  if(c.sha256==='0'.repeat(64))return null;
+  dlog(`parseConfig: fileSize=${c.fileSize} K=${c.K} bs=${c.blockSize} sha=${c.sha256.slice(0,16)}... comp=${c.isCompressed} fnLen=${c.filenameLen}`);
+  if(c.K===0||c.blockSize===0||c.fileSize===0){dlog('parseConfig: REJECTED zero K/bs/fileSize');return null;}
+  if(c.sha256==='0'.repeat(64)){dlog('parseConfig: REJECTED all-zero sha256');return null;}
   if(c.filenameLen>0&&p.length>=42+c.filenameLen)
     c.filename=new TextDecoder().decode(p.slice(42,42+c.filenameLen));
+  dlog('parseConfig: OK filename='+c.filename);
   return c;
 }
 
@@ -214,16 +266,18 @@ async function sha256hex(data){
 // Parse a QR payload into packet
 // ═══════════════════════════════════════════════════════════════════════════
 function parsePacket(raw){
-  if(raw.length<6)return null;
+  if(raw.length<6){dlog('parsePacket: too short len='+raw.length);return null;}
   const bytes=typeof raw==='string'
     ? Uint8Array.from(raw,c=>c.charCodeAt(0))
     : new Uint8Array(raw);
-  return{
+  const pkt={
     type:bytes[0],
     index:(bytes[1]<<16)|(bytes[2]<<8)|bytes[3],
     totalSymbols:(bytes[4]<<8)|bytes[5],
     payload:bytes.slice(6)
   };
+  dlog(`parsePacket: type=0x${pkt.type.toString(16).padStart(2,'0')} idx=${pkt.index} total=${pkt.totalSymbols} payloadLen=${pkt.payload.length}`);
+  return pkt;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -250,6 +304,7 @@ const btnDl=document.getElementById('btn-dl');
 const btnReset=document.getElementById('btn-reset');
 const btnCam=document.getElementById('btn-cam');
 const btnVid=document.getElementById('btn-vid');
+const btnLog=document.getElementById('btn-log');
 const vidInput=document.getElementById('vid-input');
 
 function fmtB(b){if(b<1024)return b+' B';if(b<1048576)return(b/1024).toFixed(1)+' KB';return(b/1048576).toFixed(2)+' MB';}
@@ -321,13 +376,14 @@ function updateUI(){
 // ═══════════════════════════════════════════════════════════════════════════
 async function handleQRData(raw){
   const pkt=parsePacket(raw);
-  if(!pkt)return;
+  if(!pkt){dlog('handleQRData: parsePacket returned null');return;}
 
   if(state===S.SEARCHING){
-    if(pkt.type!==0x00)return; // need config first
+    if(pkt.type!==0x00){dlog('handleQRData: SEARCHING but got type=0x'+pkt.type.toString(16)+' (need 0x00 config)');return;}
     const parsed=parseConfig(pkt.payload);
-    if(!parsed)return;
+    if(!parsed){dlog('handleQRData: parseConfig returned null, payload first16='+Array.from(pkt.payload.slice(0,16)).join(','));return;}
     cfg=parsed;
+    dlog('handleQRData: CONFIG RECEIVED file='+cfg.filename+' size='+cfg.fileSize+' K='+cfg.K+' bs='+cfg.blockSize+' compressed='+cfg.isCompressed);
     decoder=new FountainDecoder(cfg.K,cfg.blockSize);
     decoder.setCdf(robustSolitonCdf(cfg.K));
     t0=Date.now();
@@ -412,7 +468,9 @@ function processVideoFrame(){
   const imgData=pctx.getImageData(0,0,w,h);
 
   totalFrames++;
-  const result=jsQR(imgData.data,w,h,{inversionAttempts:'dontInvert'});
+  const result=jsQR(imgData.data,w,h,{inversionAttempts:'attemptBoth'});
+
+  dlogFrame(totalFrames,w,h,result);
 
   if(result&&result.binaryData&&result.binaryData.length>=6){
     qrOk++;
@@ -433,61 +491,137 @@ async function processVideoFile(file){
   state=S.SEARCHING;
   qrOk=0;qrFail=0;totalFrames=0;t0=Date.now();
   btnCam.style.display='none';btnVid.style.display='none';
+  btnLog.style.display='inline-block';
   elStatus.textContent='LOADING VIDEO...';
   elSub.textContent=file.name;
+  dlog('processVideoFile: '+file.name+' size='+file.size);
 
   const url=URL.createObjectURL(file);
   vid.src=url;
   vid.muted=true;
-  vid.playbackRate=1;
 
   await new Promise(r=>{vid.onloadeddata=r;vid.load();});
   const w=vid.videoWidth,h=vid.videoHeight;
   const duration=vid.duration;
   elSub.textContent=`${file.name} — ${w}x${h}, ${duration.toFixed(1)}s`;
-
-  // Process frame by frame using seeked events
-  const fps=30; // assume 30fps recording
-  const totalVidFrames=Math.floor(duration*fps);
-  let frameIdx=0;
+  dlog(`Video loaded: ${w}x${h}, ${duration.toFixed(2)}s`);
 
   pcv.width=w;pcv.height=h;
   elStatus.textContent='PROCESSING...';
 
-  for(let t=0;t<duration&&state!==S.COMPLETE;t+=1/fps){
+  // Use play-based frame capture (much faster than seek-per-frame)
+  // For videos, play at 1x speed and grab frames via requestAnimationFrame
+  // OR use requestVideoFrameCallback if available (more accurate)
+  const hasRVFC='requestVideoFrameCallback' in HTMLVideoElement.prototype;
+  dlog('Using '+(hasRVFC?'requestVideoFrameCallback':'requestAnimationFrame')+' for frame capture');
+
+  let lastTime=-1;
+  let resolve;
+  const done=new Promise(r=>{resolve=r;});
+
+  function grabFrame(){
+    if(state===S.COMPLETE||vid.ended||vid.paused){
+      finishVideo();
+      return;
+    }
+    // Skip duplicate frames (same currentTime)
+    const ct=vid.currentTime;
+    if(ct===lastTime){
+      if(hasRVFC)vid.requestVideoFrameCallback(grabFrame);
+      else requestAnimationFrame(grabFrame);
+      return;
+    }
+    lastTime=ct;
+
+    pctx.drawImage(vid,0,0,w,h);
+    const imgData=pctx.getImageData(0,0,w,h);
+    totalFrames++;
+
+    const result=jsQR(imgData.data,w,h,{inversionAttempts:'attemptBoth'});
+    dlogFrame(totalFrames,w,h,result);
+
+    if(result&&result.binaryData&&result.binaryData.length>=6){
+      qrOk++;
+      handleQRData(new Uint8Array(result.binaryData));
+    }
+
+    // Update progress
+    const vidPct=Math.round(ct/duration*100);
+    if(state===S.SEARCHING){
+      elStats.textContent=`Video: ${vidPct}% | Frame ${totalFrames} | QR: ${qrOk} | ${ct.toFixed(1)}s/${duration.toFixed(1)}s`;
+    }
+    updateUI();
+
+    if(state!==S.COMPLETE){
+      if(hasRVFC)vid.requestVideoFrameCallback(grabFrame);
+      else requestAnimationFrame(grabFrame);
+    } else {
+      finishVideo();
+    }
+  }
+
+  function finishVideo(){
+    vid.pause();
+    dlog(`Video processing done: ${totalFrames} frames, ${qrOk} QR found, state=${state}`);
+    if(state!==S.COMPLETE){
+      elStatus.textContent='VIDEO COMPLETE';
+      elSub.textContent=`Processed ${totalFrames} frames. Decoded ${decoder?decoder.decodedCount:0}/${cfg?cfg.K:'?'} blocks.`;
+      if(!cfg){
+        elErr.textContent=`No QR codes detected in ${totalFrames} frames. Try recording closer to the screen, ensure QR code is sharp and well-lit.`;
+        dlog('FAILURE: No config packet ever received. Zero QR codes decoded.');
+      } else if(decoder&&!decoder.isComplete()){
+        elErr.textContent=`Need more data. Got ${decoder.decodedCount}/${cfg.K} blocks (${Math.round(decoder.progress()*100)}%). Record a longer video.`;
+      }
+    }
+    URL.revokeObjectURL(url);
+    resolve();
+  }
+
+  vid.onended=()=>finishVideo();
+
+  // Start playback
+  vid.playbackRate=1;
+  try{
+    await vid.play();
+    if(hasRVFC)vid.requestVideoFrameCallback(grabFrame);
+    else requestAnimationFrame(grabFrame);
+  }catch(e){
+    dlog('Video play failed: '+e.message);
+    // Fallback to seek-based approach
+    dlog('Falling back to seek-based processing');
+    await processVideoSeek(w,h,duration);
+    finishVideo();
+    return;
+  }
+
+  await done;
+}
+
+// Fallback seek-based processing (slower but works everywhere)
+async function processVideoSeek(w,h,duration){
+  const step=1/15; // sample at 15fps
+  for(let t=0;t<duration&&state!==S.COMPLETE;t+=step){
     vid.currentTime=t;
     await new Promise(r=>{vid.onseeked=r;});
     pctx.drawImage(vid,0,0,w,h);
     const imgData=pctx.getImageData(0,0,w,h);
     totalFrames++;
 
-    const result=jsQR(imgData.data,w,h,{inversionAttempts:'dontInvert'});
+    const result=jsQR(imgData.data,w,h,{inversionAttempts:'attemptBoth'});
+    dlogFrame(totalFrames,w,h,result);
+
     if(result&&result.binaryData&&result.binaryData.length>=6){
       qrOk++;
       await handleQRData(new Uint8Array(result.binaryData));
     }
 
-    // Update progress
-    frameIdx++;
-    const vidPct=Math.round(frameIdx/totalVidFrames*100);
+    const vidPct=Math.round(t/duration*100);
     if(state===S.SEARCHING){
-      elStats.textContent=`Video: ${vidPct}% | Frame ${frameIdx}/${totalVidFrames} | QR: ${qrOk}`;
+      elStats.textContent=`Video: ${vidPct}% | Frame ${totalFrames} | QR: ${qrOk}`;
     }
     updateUI();
-
-    // Yield to UI every 10 frames
-    if(frameIdx%10===0) await new Promise(r=>setTimeout(r,0));
+    if(totalFrames%10===0) await new Promise(r=>setTimeout(r,0));
   }
-
-  if(state!==S.COMPLETE){
-    elStatus.textContent='VIDEO COMPLETE';
-    elSub.textContent=`Processed ${totalFrames} frames. Decoded ${decoder?decoder.decodedCount:0}/${cfg?cfg.K:'?'} blocks.`;
-    if(decoder&&!decoder.isComplete()){
-      elErr.textContent=`Need more data. Got ${decoder.decodedCount}/${cfg.K} blocks (${Math.round(decoder.progress()*100)}%). Record a longer video.`;
-    }
-  }
-
-  URL.revokeObjectURL(url);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -499,6 +633,8 @@ async function startCamera(){
   qrOk=0;qrFail=0;totalFrames=0;t0=Date.now();
   btnCam.style.display='none';btnVid.style.display='none';
   btnReset.style.display='inline-block';
+  btnLog.style.display='inline-block';
+  dlog('startCamera: beginning live camera mode');
 
   try{
     const stream=await navigator.mediaDevices.getUserMedia({
@@ -537,10 +673,12 @@ btnDl.onclick=()=>{
   URL.revokeObjectURL(url);
 };
 
+btnLog.onclick=()=>exportLog();
+
 btnReset.onclick=()=>{
   if(animFrame){cancelAnimationFrame(animFrame);animFrame=null;}
   if(vid.srcObject){vid.srcObject.getTracks().forEach(t=>t.stop());vid.srcObject=null;}
-  vid.src='';
+  vid.pause();vid.src='';
   state=S.IDLE;cfg=null;decoder=null;downloadData=null;
   qrOk=0;qrFail=0;totalFrames=0;
   elStatus.textContent='READY';
@@ -548,9 +686,10 @@ btnReset.onclick=()=>{
   elProg.style.width='0%';elStats.textContent='';elErr.textContent='';
   elFinfo.textContent='';elDetail.style.display='none';
   document.body.style.backgroundColor='#222';
-  btnDl.style.display='none';btnReset.style.display='none';
+  btnDl.style.display='none';btnReset.style.display='none';btnLog.style.display='none';
   btnCam.style.display='inline-block';btnVid.style.display='inline-block';
   vidInput.value='';
+  dlog('--- RESET ---');
 };
 </script>
 </body>
