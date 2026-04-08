@@ -85,6 +85,7 @@ canvas{display:block}
     <h3>Settings</h3>
     <div class="s-row"><label>FPS</label><input type="range" id="s-fps" min="2" max="15" step="1" value="10"><span class="val" id="v-fps">10</span></div>
     <div class="s-row"><label>Extra</label><input type="range" id="s-over" min="1.1" max="2.0" step="0.1" value="1.3"><span class="val" id="v-over">1.3x</span></div>
+    <div class="s-row"><label>QR Size</label><input type="range" id="s-qr" min="100" max="2953" step="50" value="900"><span class="val" id="v-qr">v~23</span></div>
   </div>
 
   <div id="btn-row">
@@ -165,9 +166,12 @@ async function sha256(data){return new Uint8Array(await crypto.subtle.digest('SH
 // ═══════════════════════════════════════════════════════════════════════════
 // QR packet builders
 // ═══════════════════════════════════════════════════════════════════════════
-const QR_MAX_BYTES = 2953; // QR v40, ECC L, binary mode
+// QR version capacity table (ECC L, binary mode) — bytes per version
+const QR_CAP_L=[0,17,32,53,78,106,134,154,192,230,271,321,367,425,458,520,586,644,718,792,858,929,1003,1091,1171,1273,1367,1465,1528,1628,1732,1840,1952,2068,2188,2303,2431,2563,2699,2809,2953];
+function qrVersionForBytes(n){for(let v=1;v<=40;v++)if(QR_CAP_L[v]>=n)return v;return 40;}
 const HEADER_SIZE = 6;     // 1 type + 3 index + 2 total_symbols
-const PAYLOAD_MAX = QR_MAX_BYTES - HEADER_SIZE;
+function getQrMaxBytes(){return +document.getElementById('s-qr').value;}
+function getPayloadMax(){return getQrMaxBytes()-HEADER_SIZE;}
 
 function buildPacket(type, index, totalSymbols, payload) {
   const pkt = new Uint8Array(HEADER_SIZE + (payload ? payload.length : 0));
@@ -182,7 +186,7 @@ function buildPacket(type, index, totalSymbols, payload) {
 }
 
 function buildConfigPayload(cfg) {
-  const fnBytes = new TextEncoder().encode(cfg.fn).slice(0, Math.min(200, PAYLOAD_MAX - 42));
+  const fnBytes = new TextEncoder().encode(cfg.fn).slice(0, Math.min(200, getPayloadMax() - 42));
   const p = new Uint8Array(42 + fnBytes.length);
   const dv = new DataView(p.buffer);
   dv.setUint32(0, cfg.fileSize, false);
@@ -269,7 +273,7 @@ let tx = null;
 function initTx() {
   const fps = +$('s-fps').value;
   const over = +$('s-over').value;
-  const bs = PAYLOAD_MAX;
+  const bs = getPayloadMax();
   const { K, blocks } = buildBlocks(fileState.data, bs);
   const cdf = robustSolitonCdf(K);
   const nSym = Math.max(K + 5, Math.floor(K * over));
@@ -313,17 +317,26 @@ function fmtB(b) { if(b<1024) return b+' B'; if(b<1048576) return (b/1024).toFix
 function updateEstimates() {
   if (!fileState) return;
   const fps = +$('s-fps').value, over = +$('s-over').value;
-  const K = Math.ceil(fileState.data.length / PAYLOAD_MAX);
+  const pm = getPayloadMax();
+  const K = Math.ceil(fileState.data.length / pm);
   const nSym = Math.max(K + 5, Math.floor(K * over));
   $('i-k').textContent = K;
   $('i-sym').textContent = nSym;
   $('i-time').textContent = ((fps + nSym + fps) / fps).toFixed(0) + 's';
 }
 
+function updateQrLabel(){
+  const maxB=+$('s-qr').value;
+  const ver=qrVersionForBytes(maxB);
+  $('v-qr').textContent='v'+ver+' ('+maxB+'B)';
+}
+
 for (const [id, fmt] of [['s-fps', v=>v], ['s-over', v=>v+'x']]) {
   const el = $(id);
   el.oninput = () => { $('v-' + id.slice(2)).textContent = fmt(el.value); updateEstimates(); };
 }
+$('s-qr').oninput = () => { updateQrLabel(); updateEstimates(); };
+updateQrLabel();
 
 // File loading
 const dz = $('drop-zone'), fi_ = $('file-input');

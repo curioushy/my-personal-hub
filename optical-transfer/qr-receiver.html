@@ -86,19 +86,38 @@ video{width:100%;border-radius:6px;display:block;background:#000}
 // Diagnostic Log
 // ═══════════════════════════════════════════════════════════════════════════
 const diagLog=[];
-let logSampleInterval=50; // log detailed frame info every N frames
 function dlog(msg){
-  const ts=Date.now();
-  diagLog.push({ts,msg});
+  diagLog.push({ts:Date.now(),msg});
 }
-function dlogFrame(frameNum,w,h,result){
-  // Always count, but only log detail periodically
+function dlogFrame(frameNum,w,h,result,scale){
+  const scaleStr=scale&&scale!==1?` @${scale}x`:'';
   if(result){
-    // Log every successful QR decode
     const firstBytes=result.binaryData?result.binaryData.slice(0,12).join(','):'none';
-    diagLog.push({ts:Date.now(),msg:`F${frameNum} [${w}x${h}] QR_OK len=${result.binaryData?result.binaryData.length:0} first12=[${firstBytes}] data="${(result.data||'').slice(0,40)}"`});
-  } else if(frameNum%logSampleInterval===0){
-    diagLog.push({ts:Date.now(),msg:`F${frameNum} [${w}x${h}] QR_FAIL (no QR detected)`});
+    diagLog.push({ts:Date.now(),msg:`F${frameNum} [${w}x${h}${scaleStr}] QR_OK len=${result.binaryData?result.binaryData.length:0} first12=[${firstBytes}]`});
+  } else if(frameNum<=20||frameNum%50===0){
+    // Log first 20 frames and every 50th after that
+    diagLog.push({ts:Date.now(),msg:`F${frameNum} [${w}x${h}${scaleStr}] QR_FAIL`});
+  }
+}
+
+// Downscale canvas for QR detection — large frames hurt jsQR performance and accuracy
+const scv=document.createElement('canvas');
+const sctx=scv.getContext('2d',{willReadFrequently:true});
+const MAX_QR_DIM=800; // max dimension to feed jsQR
+
+function tryDecodeQR(srcCanvas,srcW,srcH){
+  // Try at original size if small enough, otherwise downscale
+  const scale=Math.min(1,MAX_QR_DIM/Math.max(srcW,srcH));
+  const dw=Math.round(srcW*scale), dh=Math.round(srcH*scale);
+
+  if(scale<1){
+    scv.width=dw;scv.height=dh;
+    sctx.drawImage(srcCanvas,0,0,dw,dh);
+    const imgData=sctx.getImageData(0,0,dw,dh);
+    return {result:jsQR(imgData.data,dw,dh,{inversionAttempts:'attemptBoth'}),w:dw,h:dh,scale};
+  } else {
+    const imgData=pctx.getImageData(0,0,srcW,srcH);
+    return {result:jsQR(imgData.data,srcW,srcH,{inversionAttempts:'attemptBoth'}),w:srcW,h:srcH,scale:1};
   }
 }
 function exportLog(){
@@ -465,12 +484,11 @@ function processVideoFrame(){
 
   pcv.width=w;pcv.height=h;
   pctx.drawImage(vid,0,0,w,h);
-  const imgData=pctx.getImageData(0,0,w,h);
 
   totalFrames++;
-  const result=jsQR(imgData.data,w,h,{inversionAttempts:'attemptBoth'});
+  const {result,w:dw,h:dh,scale}=tryDecodeQR(pcv,w,h);
 
-  dlogFrame(totalFrames,w,h,result);
+  dlogFrame(totalFrames,dw,dh,result,scale);
 
   if(result&&result.binaryData&&result.binaryData.length>=6){
     qrOk++;
@@ -534,11 +552,10 @@ async function processVideoFile(file){
     lastTime=ct;
 
     pctx.drawImage(vid,0,0,w,h);
-    const imgData=pctx.getImageData(0,0,w,h);
     totalFrames++;
 
-    const result=jsQR(imgData.data,w,h,{inversionAttempts:'attemptBoth'});
-    dlogFrame(totalFrames,w,h,result);
+    const {result,w:dw,h:dh,scale}=tryDecodeQR(pcv,w,h);
+    dlogFrame(totalFrames,dw,dh,result,scale);
 
     if(result&&result.binaryData&&result.binaryData.length>=6){
       qrOk++;
@@ -604,11 +621,10 @@ async function processVideoSeek(w,h,duration){
     vid.currentTime=t;
     await new Promise(r=>{vid.onseeked=r;});
     pctx.drawImage(vid,0,0,w,h);
-    const imgData=pctx.getImageData(0,0,w,h);
     totalFrames++;
 
-    const result=jsQR(imgData.data,w,h,{inversionAttempts:'attemptBoth'});
-    dlogFrame(totalFrames,w,h,result);
+    const {result,w:dw,h:dh,scale}=tryDecodeQR(pcv,w,h);
+    dlogFrame(totalFrames,dw,dh,result,scale);
 
     if(result&&result.binaryData&&result.binaryData.length>=6){
       qrOk++;
