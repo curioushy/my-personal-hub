@@ -539,7 +539,7 @@ async function processVideoFile(file){
 
   function grabFrame(){
     if(state===S.COMPLETE){
-      finishVideoOrLoop();
+      finishVideo();
       return;
     }
     if(vid.ended||vid.paused){
@@ -576,46 +576,41 @@ async function processVideoFile(file){
       if(hasRVFC)vid.requestVideoFrameCallback(grabFrame);
       else requestAnimationFrame(grabFrame);
     } else {
-      finishVideoOrLoop();
+      finishVideo();
     }
   }
 
-  let videoLoops=0;
-  function finishVideoOrLoop(){
-    dlog(`Video pass ${videoLoops+1} done: ${totalFrames} frames, ${qrOk} QR found, state=${state}`);
-    if(state===S.COMPLETE){
-      vid.pause();
-      URL.revokeObjectURL(url);
-      resolve();
-      return;
-    }
-    videoLoops++;
-    if(videoLoops>=10){
-      // Give up after 10 loops
-      vid.pause();
-      elStatus.textContent='VIDEO COMPLETE';
-      elSub.textContent=`Processed ${totalFrames} frames (${videoLoops} loops). Decoded ${decoder?decoder.decodedCount:0}/${cfg?cfg.K:'?'} blocks.`;
+  function finishVideo(){
+    vid.pause();
+    dlog(`Video processing done: ${totalFrames} frames, ${qrOk} QR found, state=${state}`);
+    if(state!==S.COMPLETE){
+      elStatus.textContent='VIDEO DONE';
+      const decCount=decoder?decoder.decodedCount:0;
+      const kVal=cfg?cfg.K:'?';
+      const pct=cfg&&decoder?Math.round(decoder.progress()*100):0;
+      elSub.textContent=`Processed ${totalFrames} frames. Decoded ${decCount}/${kVal} blocks (${pct}%).`;
       if(!cfg){
-        elErr.textContent=`No QR codes detected. Try recording closer to the screen.`;
-        dlog('FAILURE: No config after '+videoLoops+' loops.');
+        elErr.textContent=`No QR codes detected in ${totalFrames} frames. Try: record closer to screen, ensure QR is sharp and well-lit.`;
+        dlog('FAILURE: No config packet ever received.');
       } else if(decoder&&!decoder.isComplete()){
-        elErr.textContent=`Stuck at ${decoder.decodedCount}/${cfg.K} blocks after ${videoLoops} loops. The transmitter may be repeating the same symbols — restart transmitter and re-record.`;
+        const uniqueSym=decoder.seenIdx.size;
+        const needed=Math.ceil(cfg.K*1.15);
+        const shortfall=Math.max(0,needed-uniqueSym);
+        let msg=`Got ${uniqueSym} unique symbols, need ~${needed}+ for ${cfg.K} blocks. `;
+        if(shortfall>0){
+          msg+=`Short by ~${shortfall} symbols. Record a longer video (the transmitter streams forever with fresh data).`;
+        } else {
+          msg+=`Symbols were sufficient but peeling got unlucky. Try recording a bit longer.`;
+        }
+        elErr.textContent=msg;
+        dlog(`INCOMPLETE: ${uniqueSym} unique symbols, needed ~${needed}, decoded ${decCount}/${cfg.K}`);
       }
-      URL.revokeObjectURL(url);
-      resolve();
-      return;
     }
-    // Loop: replay the video for more data
-    dlog(`Looping video (pass ${videoLoops+1}), decoded so far: ${decoder?decoder.decodedCount:0}/${cfg?cfg.K:'?'}`);
-    elSub.textContent=`Loop ${videoLoops+1} — ${decoder?decoder.decodedCount:0}/${cfg?cfg.K:'?'} blocks`;
-    vid.currentTime=0;
-    vid.play().then(()=>{
-      if(hasRVFC)vid.requestVideoFrameCallback(grabFrame);
-      else requestAnimationFrame(grabFrame);
-    });
+    URL.revokeObjectURL(url);
+    resolve();
   }
 
-  vid.onended=()=>finishVideoOrLoop();
+  vid.onended=()=>finishVideo();
 
   // Start playback
   vid.playbackRate=1;
