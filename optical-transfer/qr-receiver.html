@@ -538,9 +538,12 @@ async function processVideoFile(file){
   const done=new Promise(r=>{resolve=r;});
 
   function grabFrame(){
-    if(state===S.COMPLETE||vid.ended||vid.paused){
-      finishVideo();
+    if(state===S.COMPLETE){
+      finishVideoOrLoop();
       return;
+    }
+    if(vid.ended||vid.paused){
+      return; // onended handler will trigger loop or finish
     }
     // Skip duplicate frames (same currentTime)
     const ct=vid.currentTime;
@@ -573,28 +576,46 @@ async function processVideoFile(file){
       if(hasRVFC)vid.requestVideoFrameCallback(grabFrame);
       else requestAnimationFrame(grabFrame);
     } else {
-      finishVideo();
+      finishVideoOrLoop();
     }
   }
 
-  function finishVideo(){
-    vid.pause();
-    dlog(`Video processing done: ${totalFrames} frames, ${qrOk} QR found, state=${state}`);
-    if(state!==S.COMPLETE){
+  let videoLoops=0;
+  function finishVideoOrLoop(){
+    dlog(`Video pass ${videoLoops+1} done: ${totalFrames} frames, ${qrOk} QR found, state=${state}`);
+    if(state===S.COMPLETE){
+      vid.pause();
+      URL.revokeObjectURL(url);
+      resolve();
+      return;
+    }
+    videoLoops++;
+    if(videoLoops>=10){
+      // Give up after 10 loops
+      vid.pause();
       elStatus.textContent='VIDEO COMPLETE';
-      elSub.textContent=`Processed ${totalFrames} frames. Decoded ${decoder?decoder.decodedCount:0}/${cfg?cfg.K:'?'} blocks.`;
+      elSub.textContent=`Processed ${totalFrames} frames (${videoLoops} loops). Decoded ${decoder?decoder.decodedCount:0}/${cfg?cfg.K:'?'} blocks.`;
       if(!cfg){
-        elErr.textContent=`No QR codes detected in ${totalFrames} frames. Try recording closer to the screen, ensure QR code is sharp and well-lit.`;
-        dlog('FAILURE: No config packet ever received. Zero QR codes decoded.');
+        elErr.textContent=`No QR codes detected. Try recording closer to the screen.`;
+        dlog('FAILURE: No config after '+videoLoops+' loops.');
       } else if(decoder&&!decoder.isComplete()){
-        elErr.textContent=`Need more data. Got ${decoder.decodedCount}/${cfg.K} blocks (${Math.round(decoder.progress()*100)}%). Record a longer video.`;
+        elErr.textContent=`Stuck at ${decoder.decodedCount}/${cfg.K} blocks after ${videoLoops} loops. The transmitter may be repeating the same symbols — restart transmitter and re-record.`;
       }
+      URL.revokeObjectURL(url);
+      resolve();
+      return;
     }
-    URL.revokeObjectURL(url);
-    resolve();
+    // Loop: replay the video for more data
+    dlog(`Looping video (pass ${videoLoops+1}), decoded so far: ${decoder?decoder.decodedCount:0}/${cfg?cfg.K:'?'}`);
+    elSub.textContent=`Loop ${videoLoops+1} — ${decoder?decoder.decodedCount:0}/${cfg?cfg.K:'?'} blocks`;
+    vid.currentTime=0;
+    vid.play().then(()=>{
+      if(hasRVFC)vid.requestVideoFrameCallback(grabFrame);
+      else requestAnimationFrame(grabFrame);
+    });
   }
 
-  vid.onended=()=>finishVideo();
+  vid.onended=()=>finishVideoOrLoop();
 
   // Start playback
   vid.playbackRate=1;

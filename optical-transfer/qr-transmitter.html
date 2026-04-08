@@ -270,6 +270,8 @@ function buildBlocks(data, bs) {
 // ═══════════════════════════════════════════════════════════════════════════
 let tx = null;
 
+let globalSymIdx = 0; // never resets — each symbol is unique
+
 function initTx() {
   const fps = +$('s-fps').value;
   const over = +$('s-over').value;
@@ -281,27 +283,30 @@ function initTx() {
     fileSize: fileState.fileSize, K, blockSize: bs,
     sha: fileState.sha, isComp: fileState.isComp, fn: fileState.fn
   });
-  const cfgCnt = Math.max(fps, 5); // at least 5 config frames
-  const endCnt = Math.max(fps, 5);
-  return { fps, bs, K, blocks, cdf, nSym, cfgP, cfgCnt, endCnt, total: cfgCnt + nSym + endCnt };
+  globalSymIdx = 0;
+  // Config injection: initial burst, then once per second during data
+  const cfgBurst = Math.max(fps, 5); // 1 second of config at start
+  const cfgEvery = fps; // inject 1 config per second during data
+  return { fps, bs, K, blocks, cdf, nSym, cfgP, cfgBurst, cfgEvery };
 }
 
-function genPacket(tx, idx) {
-  const { cfgP, cfgCnt, nSym, K, blocks, bs, cdf, total } = tx;
-  // Inject config periodically during data phase
-  const di = idx - cfgCnt;
-  const injectEvery = Math.max(3, Math.round(tx.fps / 2));
-  if (idx < cfgCnt || (di >= 0 && di < nSym && di % injectEvery === Math.floor(injectEvery / 2))) {
+function genPacket(tx) {
+  const { cfgP, cfgBurst, cfgEvery, K, blocks, bs, cdf, nSym } = tx;
+  const totalSent = fi; // total frames sent
+
+  // Initial config burst
+  if (totalSent < cfgBurst) {
     return buildPacket(0x00, 0, nSym, cfgP);
   }
-  if (idx >= cfgCnt + nSym) {
-    const endP = new Uint8Array(36);
-    endP.set(fileState.sha);
-    const dv = new DataView(endP.buffer);
-    dv.setUint32(32, nSym, false);
-    return buildPacket(0xFF, 0xFFFFFF, nSym, endP);
+
+  // During data: inject config once per second
+  const dataN = totalSent - cfgBurst;
+  if (dataN > 0 && dataN % cfgEvery === 0) {
+    return buildPacket(0x00, 0, nSym, cfgP);
   }
-  const si = idx - cfgCnt;
+
+  // Data symbol — use global counter for fresh symbols every time
+  const si = globalSymIdx++;
   const sym = generateSymbol(si, K, blocks, bs, cdf);
   return buildPacket(0x01, si, nSym, sym);
 }
@@ -309,7 +314,7 @@ function genPacket(tx, idx) {
 // ═══════════════════════════════════════════════════════════════════════════
 // UI
 // ═══════════════════════════════════════════════════════════════════════════
-let timer = null, running = false, paused = false, fi = 0, loops = 0, t0 = 0;
+let timer = null, running = false, paused = false, fi = 0, t0 = 0;
 
 function $(id) { return document.getElementById(id); }
 function fmtB(b) { if(b<1024) return b+' B'; if(b<1048576) return (b/1024).toFixed(1)+' KB'; return (b/1048576).toFixed(2)+' MB'; }
@@ -364,7 +369,7 @@ async function loadFile(file) {
 $('btn-start').onclick = () => {
   if (!fileState || running) return;
   tx = initTx(); if (!tx) return;
-  running = true; paused = false; fi = 0; loops = 0; t0 = Date.now();
+  running = true; paused = false; fi = 0; t0 = Date.now();
   $('btn-start').disabled = true; $('btn-pause').disabled = false; $('btn-stop').disabled = false;
   dz.style.pointerEvents = 'none'; dz.style.opacity = '.4';
   timer = setInterval(tick, 1000 / tx.fps);
@@ -401,19 +406,19 @@ $('btn-reset').onclick = () => {
 
 function tick() {
   if (!running || paused) return;
-  const li = fi % tx.total;
-  const pkt = genPacket(tx, li);
+  const pkt = genPacket(tx);
   renderQR(pkt);
 
-  let ph = li < tx.cfgCnt ? 'CONFIG' : li < tx.cfgCnt + tx.nSym ? 'DATA' : 'END';
-  if (loops > 0) ph = 'LOOP ' + loops;
+  const isConfig = fi < tx.cfgBurst || ((fi - tx.cfgBurst) > 0 && (fi - tx.cfgBurst) % tx.cfgEvery === 0);
+  const ph = isConfig ? 'CONFIG' : 'DATA';
   $('phase').textContent = ph;
-  $('prog-bar').style.width = Math.min(100, li / tx.total * 100) + '%';
+  // Progress: show how many unique symbols sent vs minimum needed
+  const minNeeded = Math.ceil(tx.K * 1.05);
+  const pct = Math.min(100, globalSymIdx / minNeeded * 100);
+  $('prog-bar').style.width = pct + '%';
   const el = ((Date.now() - t0) / 1000).toFixed(1);
-  const ds = Math.max(0, Math.min(li - tx.cfgCnt, tx.nSym));
-  $('stats').textContent = 'Frame ' + li + '/' + tx.total + ' | ' + el + 's | ~' + fmtB(ds * tx.bs) + ' sent';
+  $('stats').textContent = 'Frame ' + fi + ' | Sym ' + globalSymIdx + '/' + tx.K + ' (K) | ' + el + 's | ~' + fmtB(globalSymIdx * tx.bs) + ' sent';
   fi++;
-  if (fi % tx.total === 0) { fi = 0; loops++; }
 }
 
 window.addEventListener('resize', () => { if (tx && running && !paused) { /* re-render on next tick */ } });
