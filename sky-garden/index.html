@@ -1,0 +1,1820 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Sky Garden — R2-D2 Platformer</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #111;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      overflow: hidden;
+    }
+    canvas {
+      display: block;
+      image-rendering: pixelated;
+    }
+
+    /* ── Mobile touch controls ── */
+    #touch-controls {
+      display: none; /* shown only on touch devices */
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      width: 100%;
+      pointer-events: none;
+      z-index: 100;
+    }
+    .tc-btn {
+      position: absolute;
+      pointer-events: all;
+      background: rgba(255,255,255,0.18);
+      border: 3px solid rgba(255,255,255,0.45);
+      border-radius: 50%;
+      width: 90px;
+      height: 90px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 40px;
+      user-select: none;
+      -webkit-user-select: none;
+      touch-action: none;
+    }
+    .tc-btn:active,
+    .tc-btn.pressed { background: rgba(255,255,255,0.38); }
+    #btn-left  { bottom: 30px; left: 20px; }
+    #btn-right { bottom: 30px; left: 124px; }
+    #btn-jump  { bottom: 30px; right: 20px; width: 110px; height: 110px; font-size: 48px; }
+    #btn-enter { bottom: 154px; right: 28px; width: 72px; height: 72px; font-size: 28px;
+                 border-radius: 14px; }
+  </style>
+</head>
+<body>
+<canvas id="game" width="800" height="600"></canvas>
+
+<!-- On-screen mobile controls -->
+<div id="touch-controls">
+  <div class="tc-btn" id="btn-left">◀</div>
+  <div class="tc-btn" id="btn-right">▶</div>
+  <div class="tc-btn" id="btn-jump">🅰</div>
+  <div class="tc-btn" id="btn-enter">▶︎</div>
+</div>
+
+<script>
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const W = 800, H = 600;
+
+// ═══════════════════════════════════════════
+// TILE & LEVEL SYSTEM
+// ═══════════════════════════════════════════
+const T = 32; // tile size
+
+// Tile types
+const EMPTY = 0;
+const SOLID = 1;
+const ONEWAY = 2; // one-way platform (pass through from below)
+const SPIKE = 3;
+const VINE = 4; // decorative
+const BOLT = 5; // collectible
+const PCELL = 6; // power cell (end of level)
+
+// Level definitions — each row is a tile row, left to right
+// Legend: 0=air, 1=solid, 2=oneway, 3=spike, 4=vine(deco), 5=bolt, 6=powercell
+const LEVELS = [
+  // Level 1 — "Cloud Meadow" (80 wide × 25 tall)
+  buildLevel(80, 25, [
+    // Ground layer (main surface at row 18)
+    { type: SOLID, y: 18, x: 0, w: 16 },
+    { type: SOLID, y: 17, x: 0, w: 16 },
+
+    // === TREASURE PIT 1 (opening x=16..20, walls at ground edges x=15 & x=21) ===
+    // Left wall (extends ground edge downward)
+    { type: SOLID, y: 19, x: 15, w: 1 }, { type: SOLID, y: 20, x: 15, w: 1 },
+    { type: SOLID, y: 21, x: 15, w: 1 }, { type: SOLID, y: 22, x: 15, w: 1 },
+    // Right wall (extends next ground edge downward)
+    { type: SOLID, y: 19, x: 21, w: 1 }, { type: SOLID, y: 20, x: 21, w: 1 },
+    { type: SOLID, y: 21, x: 21, w: 1 }, { type: SOLID, y: 22, x: 21, w: 1 },
+    // Floor of pit
+    { type: SOLID, y: 23, x: 15, w: 7 },
+    { type: SOLID, y: 24, x: 15, w: 7 },
+    // Step blocks to climb out (deep enough to not block entry)
+    { type: SOLID, y: 21, x: 16, w: 1 },
+    { type: SOLID, y: 21, x: 20, w: 1 },
+    // Bolts inside pit
+    { type: BOLT, y: 22, x: 17, w: 1 },
+    { type: BOLT, y: 22, x: 18, w: 1 },
+    { type: BOLT, y: 22, x: 19, w: 1 },
+    { type: BOLT, y: 20, x: 18, w: 1 },
+
+    // Ground continues
+    { type: SOLID, y: 18, x: 21, w: 14 },
+    { type: SOLID, y: 17, x: 21, w: 14 },
+
+    // === TREASURE PIT 2 (opening x=35..39, walls at x=34 & x=40) ===
+    { type: SOLID, y: 19, x: 34, w: 1 }, { type: SOLID, y: 20, x: 34, w: 1 },
+    { type: SOLID, y: 21, x: 34, w: 1 }, { type: SOLID, y: 22, x: 34, w: 1 },
+    { type: SOLID, y: 19, x: 40, w: 1 }, { type: SOLID, y: 20, x: 40, w: 1 },
+    { type: SOLID, y: 21, x: 40, w: 1 }, { type: SOLID, y: 22, x: 40, w: 1 },
+    { type: SOLID, y: 23, x: 34, w: 7 },
+    { type: SOLID, y: 24, x: 34, w: 7 },
+    { type: SOLID, y: 21, x: 35, w: 1 },
+    { type: SOLID, y: 21, x: 39, w: 1 },
+    { type: BOLT, y: 22, x: 36, w: 1 },
+    { type: BOLT, y: 22, x: 37, w: 1 },
+    { type: BOLT, y: 22, x: 38, w: 1 },
+    { type: BOLT, y: 20, x: 37, w: 1 },
+
+    // Ground section 3
+    { type: SOLID, y: 18, x: 41, w: 16 },
+    { type: SOLID, y: 17, x: 41, w: 16 },
+
+    // floating platforms
+    { type: ONEWAY, y: 14, x: 10, w: 4 },
+    { type: ONEWAY, y: 11, x: 16, w: 4 },
+    { type: ONEWAY, y: 14, x: 25, w: 3 },
+    // bolts on platforms
+    { type: BOLT, y: 13, x: 11, w: 2 },
+    { type: BOLT, y: 10, x: 17, w: 2 },
+    // staircase
+    { type: SOLID, y: 16, x: 45, w: 3 },
+    { type: SOLID, y: 15, x: 48, w: 3 },
+    { type: SOLID, y: 14, x: 51, w: 3 },
+    { type: BOLT, y: 13, x: 52, w: 1 },
+    // floating platforms high
+    { type: ONEWAY, y: 11, x: 41, w: 3 },
+    { type: ONEWAY, y: 8, x: 46, w: 4 },
+    { type: BOLT, y: 7, x: 47, w: 2 },
+
+    // === TREASURE PIT 3 (opening x=57..61, walls at x=56 & x=62) ===
+    { type: SOLID, y: 19, x: 56, w: 1 }, { type: SOLID, y: 20, x: 56, w: 1 },
+    { type: SOLID, y: 21, x: 56, w: 1 }, { type: SOLID, y: 22, x: 56, w: 1 },
+    { type: SOLID, y: 19, x: 62, w: 1 }, { type: SOLID, y: 20, x: 62, w: 1 },
+    { type: SOLID, y: 21, x: 62, w: 1 }, { type: SOLID, y: 22, x: 62, w: 1 },
+    { type: SOLID, y: 23, x: 56, w: 7 },
+    { type: SOLID, y: 24, x: 56, w: 7 },
+    { type: SOLID, y: 21, x: 57, w: 1 },
+    { type: SOLID, y: 21, x: 61, w: 1 },
+    { type: BOLT, y: 22, x: 58, w: 1 },
+    { type: BOLT, y: 22, x: 59, w: 1 },
+    { type: BOLT, y: 22, x: 60, w: 1 },
+    { type: BOLT, y: 20, x: 59, w: 1 },
+    { type: BOLT, y: 19, x: 59, w: 1 },
+
+    // more ground after pit
+    { type: SOLID, y: 18, x: 63, w: 17 },
+    { type: SOLID, y: 17, x: 63, w: 17 },
+    // final platforms
+    { type: ONEWAY, y: 14, x: 64, w: 4 },
+    { type: ONEWAY, y: 11, x: 69, w: 4 },
+    { type: SOLID, y: 14, x: 75, w: 5 },
+    { type: SOLID, y: 13, x: 75, w: 5 },
+    // power cell at end
+    { type: PCELL, y: 12, x: 77, w: 1 },
+    // bolts scattered on ground
+    { type: BOLT, y: 17, x: 5, w: 1 },
+    { type: BOLT, y: 17, x: 8, w: 1 },
+    { type: BOLT, y: 17, x: 12, w: 1 },
+    { type: BOLT, y: 17, x: 24, w: 1 },
+    { type: BOLT, y: 17, x: 28, w: 1 },
+    { type: BOLT, y: 13, x: 65, w: 1 },
+    { type: BOLT, y: 10, x: 70, w: 1 },
+  ]),
+
+  // Level 2 — "Vine Ruins"
+  buildLevel(90, 25, [
+    // Ground
+    { type: SOLID, y: 18, x: 0, w: 12 },
+    { type: SOLID, y: 17, x: 0, w: 12 },
+    // ascending platforms
+    { type: ONEWAY, y: 15, x: 6, w: 3 },
+    { type: ONEWAY, y: 12, x: 10, w: 3 },
+    { type: ONEWAY, y: 9, x: 14, w: 3 },
+    { type: ONEWAY, y: 12, x: 18, w: 3 },
+    { type: BOLT, y: 8, x: 15, w: 1 },
+    { type: BOLT, y: 11, x: 11, w: 1 },
+
+    // === TREASURE PIT (opening x=12..15, walls at x=11 & x=16) ===
+    { type: SOLID, y: 19, x: 11, w: 1 }, { type: SOLID, y: 20, x: 11, w: 1 },
+    { type: SOLID, y: 21, x: 11, w: 1 }, { type: SOLID, y: 22, x: 11, w: 1 },
+    { type: SOLID, y: 19, x: 16, w: 1 }, { type: SOLID, y: 20, x: 16, w: 1 },
+    { type: SOLID, y: 21, x: 16, w: 1 }, { type: SOLID, y: 22, x: 16, w: 1 },
+    { type: SOLID, y: 23, x: 11, w: 6 }, { type: SOLID, y: 24, x: 11, w: 6 },
+    { type: SOLID, y: 21, x: 12, w: 1 },
+    { type: BOLT, y: 22, x: 13, w: 1 }, { type: BOLT, y: 22, x: 14, w: 1 },
+    { type: BOLT, y: 20, x: 13, w: 1 },
+
+    // ground section 2
+    { type: SOLID, y: 18, x: 17, w: 13 },
+    { type: SOLID, y: 17, x: 17, w: 13 },
+    { type: SOLID, y: 16, x: 22, w: 3 },
+    { type: SOLID, y: 15, x: 22, w: 3 },
+    // floating maze area
+    { type: ONEWAY, y: 13, x: 28, w: 3 },
+    { type: ONEWAY, y: 10, x: 32, w: 3 },
+    { type: ONEWAY, y: 13, x: 36, w: 3 },
+    { type: ONEWAY, y: 7, x: 34, w: 4 },
+    { type: BOLT, y: 6, x: 35, w: 2 },
+    { type: BOLT, y: 12, x: 29, w: 1 },
+    { type: BOLT, y: 9, x: 33, w: 1 },
+    // ground section 3
+    { type: SOLID, y: 18, x: 33, w: 20 },
+    { type: SOLID, y: 17, x: 33, w: 20 },
+
+    // === TREASURE PIT 2 (opening x=53..57, walls at x=52 & x=58) ===
+    { type: SOLID, y: 19, x: 52, w: 1 }, { type: SOLID, y: 20, x: 52, w: 1 },
+    { type: SOLID, y: 21, x: 52, w: 1 }, { type: SOLID, y: 22, x: 52, w: 1 },
+    { type: SOLID, y: 19, x: 58, w: 1 }, { type: SOLID, y: 20, x: 58, w: 1 },
+    { type: SOLID, y: 21, x: 58, w: 1 }, { type: SOLID, y: 22, x: 58, w: 1 },
+    { type: SOLID, y: 23, x: 52, w: 7 }, { type: SOLID, y: 24, x: 52, w: 7 },
+    { type: SOLID, y: 21, x: 53, w: 1 }, { type: SOLID, y: 21, x: 57, w: 1 },
+    { type: BOLT, y: 22, x: 54, w: 1 }, { type: BOLT, y: 22, x: 55, w: 1 },
+    { type: BOLT, y: 22, x: 56, w: 1 }, { type: BOLT, y: 20, x: 55, w: 1 },
+
+    // ground 4
+    { type: SOLID, y: 18, x: 59, w: 13 },
+    { type: SOLID, y: 17, x: 59, w: 13 },
+    { type: ONEWAY, y: 14, x: 60, w: 3 },
+    { type: ONEWAY, y: 11, x: 64, w: 3 },
+    { type: ONEWAY, y: 14, x: 68, w: 3 },
+    { type: BOLT, y: 13, x: 61, w: 1 },
+    { type: BOLT, y: 10, x: 65, w: 1 },
+    // final area
+    { type: SOLID, y: 18, x: 74, w: 16 },
+    { type: SOLID, y: 17, x: 74, w: 16 },
+    { type: SOLID, y: 14, x: 80, w: 6 },
+    { type: SOLID, y: 13, x: 80, w: 6 },
+    { type: SOLID, y: 12, x: 82, w: 4 },
+    { type: PCELL, y: 11, x: 84, w: 1 },
+    { type: BOLT, y: 17, x: 76, w: 1 },
+    { type: BOLT, y: 17, x: 79, w: 1 },
+    // spikes (keep a couple as hazards)
+    { type: SPIKE, y: 18, x: 30, w: 3 },
+    { type: SPIKE, y: 18, x: 72, w: 2 },
+  ]),
+
+  // Level 3 — "Mech Tower" (most challenging)
+  buildLevel(100, 25, [
+    // Start ground
+    { type: SOLID, y: 18, x: 0, w: 10 },
+    { type: SOLID, y: 17, x: 0, w: 10 },
+    // early platforming
+    { type: ONEWAY, y: 15, x: 5, w: 3 },
+    { type: ONEWAY, y: 12, x: 9, w: 3 },
+    { type: BOLT, y: 11, x: 10, w: 1 },
+
+    // === TREASURE PIT (opening x=10..14, walls at x=9 & x=15) ===
+    { type: SOLID, y: 19, x: 9, w: 1 }, { type: SOLID, y: 20, x: 9, w: 1 },
+    { type: SOLID, y: 21, x: 9, w: 1 }, { type: SOLID, y: 22, x: 9, w: 1 },
+    { type: SOLID, y: 19, x: 15, w: 1 }, { type: SOLID, y: 20, x: 15, w: 1 },
+    { type: SOLID, y: 21, x: 15, w: 1 }, { type: SOLID, y: 22, x: 15, w: 1 },
+    { type: SOLID, y: 23, x: 9, w: 7 }, { type: SOLID, y: 24, x: 9, w: 7 },
+    { type: SOLID, y: 21, x: 10, w: 1 }, { type: SOLID, y: 21, x: 14, w: 1 },
+    { type: BOLT, y: 22, x: 11, w: 1 }, { type: BOLT, y: 22, x: 12, w: 1 },
+    { type: BOLT, y: 22, x: 13, w: 1 }, { type: BOLT, y: 20, x: 12, w: 1 },
+
+    // ground 2
+    { type: SOLID, y: 18, x: 16, w: 7 },
+    { type: SOLID, y: 17, x: 16, w: 7 },
+    { type: SOLID, y: 16, x: 18, w: 3 },
+    // vertical ascent
+    { type: ONEWAY, y: 14, x: 15, w: 3 },
+    { type: ONEWAY, y: 11, x: 19, w: 3 },
+    { type: ONEWAY, y: 8, x: 15, w: 3 },
+    { type: ONEWAY, y: 5, x: 19, w: 3 },
+    { type: BOLT, y: 7, x: 16, w: 1 },
+    { type: BOLT, y: 4, x: 20, w: 1 },
+    // high bridge
+    { type: SOLID, y: 5, x: 22, w: 10 },
+    { type: BOLT, y: 4, x: 25, w: 3 },
+    // descend
+    { type: ONEWAY, y: 8, x: 30, w: 3 },
+    { type: ONEWAY, y: 11, x: 34, w: 3 },
+    { type: ONEWAY, y: 14, x: 30, w: 3 },
+    // ground 3
+    { type: SOLID, y: 18, x: 28, w: 15 },
+    { type: SOLID, y: 17, x: 28, w: 15 },
+    // spike run with platforms over them
+    { type: SPIKE, y: 18, x: 43, w: 3 },
+    { type: ONEWAY, y: 15, x: 44, w: 2 },
+    { type: SPIKE, y: 18, x: 48, w: 3 },
+    { type: ONEWAY, y: 15, x: 49, w: 2 },
+    // ground 4
+    { type: SOLID, y: 18, x: 51, w: 15 },
+    { type: SOLID, y: 17, x: 51, w: 15 },
+    { type: ONEWAY, y: 14, x: 53, w: 3 },
+    { type: ONEWAY, y: 11, x: 57, w: 3 },
+    { type: ONEWAY, y: 8, x: 53, w: 3 },
+    { type: BOLT, y: 13, x: 54, w: 1 },
+    { type: BOLT, y: 10, x: 58, w: 1 },
+    { type: BOLT, y: 7, x: 54, w: 1 },
+
+    // === TREASURE PIT 2 (opening x=66..70, walls at x=65 & x=71) ===
+    { type: SOLID, y: 19, x: 65, w: 1 }, { type: SOLID, y: 20, x: 65, w: 1 },
+    { type: SOLID, y: 21, x: 65, w: 1 }, { type: SOLID, y: 22, x: 65, w: 1 },
+    { type: SOLID, y: 19, x: 71, w: 1 }, { type: SOLID, y: 20, x: 71, w: 1 },
+    { type: SOLID, y: 21, x: 71, w: 1 }, { type: SOLID, y: 22, x: 71, w: 1 },
+    { type: SOLID, y: 23, x: 65, w: 7 }, { type: SOLID, y: 24, x: 65, w: 7 },
+    { type: SOLID, y: 21, x: 66, w: 1 }, { type: SOLID, y: 21, x: 70, w: 1 },
+    { type: BOLT, y: 22, x: 67, w: 1 }, { type: BOLT, y: 22, x: 68, w: 1 },
+    { type: BOLT, y: 22, x: 69, w: 1 }, { type: BOLT, y: 20, x: 68, w: 1 },
+    { type: BOLT, y: 19, x: 68, w: 1 },
+
+    // ground 5
+    { type: SOLID, y: 18, x: 72, w: 8 },
+    { type: SOLID, y: 17, x: 72, w: 8 },
+    // final tower
+    { type: SOLID, y: 15, x: 74, w: 5 },
+    { type: SOLID, y: 14, x: 74, w: 5 },
+    { type: SOLID, y: 12, x: 76, w: 3 },
+    { type: SOLID, y: 11, x: 76, w: 3 },
+    { type: SOLID, y: 9, x: 77, w: 2 },
+    // end area
+    { type: SOLID, y: 18, x: 82, w: 18 },
+    { type: SOLID, y: 17, x: 82, w: 18 },
+    { type: SOLID, y: 14, x: 88, w: 8 },
+    { type: SOLID, y: 13, x: 88, w: 8 },
+    { type: SOLID, y: 12, x: 90, w: 4 },
+    { type: SOLID, y: 11, x: 90, w: 4 },
+    { type: PCELL, y: 10, x: 92, w: 1 },
+    { type: BOLT, y: 17, x: 85, w: 1 },
+    { type: BOLT, y: 17, x: 87, w: 1 },
+    { type: BOLT, y: 13, x: 93, w: 1 },
+  ]),
+];
+
+function buildLevel(cols, rows, elements) {
+  const grid = [];
+  for (let r = 0; r < rows; r++) {
+    grid[r] = new Array(cols).fill(EMPTY);
+  }
+  for (const el of elements) {
+    for (let i = 0; i < el.w; i++) {
+      if (el.y >= 0 && el.y < rows && el.x + i >= 0 && el.x + i < cols) {
+        grid[el.y][el.x + i] = el.type;
+      }
+    }
+  }
+  return { cols, rows, grid };
+}
+
+// ═══════════════════════════════════════════
+// GAME STATE
+// ═══════════════════════════════════════════
+const STATE = {
+  MENU: 0,
+  PLAYING: 1,
+  LEVEL_COMPLETE: 2,
+  GAME_OVER: 3,
+  WIN: 4,
+};
+
+let gameState = STATE.MENU;
+let currentLevel = 0;
+let level = LEVELS[0];
+let bolts = 0;
+let totalBolts = 0;
+let lives = 3;
+let levelTransitionTimer = 0;
+
+// Track collected items per level (reset on level load)
+let collected = new Set();
+
+// ═══════════════════════════════════════════
+// INPUT
+// ═══════════════════════════════════════════
+const keys = { left: false, right: false, jump: false, enter: false };
+let jumpReleased = true;
+
+document.addEventListener('keydown', e => {
+  if (e.code === 'ArrowLeft' || e.code === 'KeyA')  keys.left  = true;
+  if (e.code === 'ArrowRight' || e.code === 'KeyD') keys.right = true;
+  if (e.code === 'Space' || e.code === 'KeyZ' || e.code === 'ArrowUp' || e.code === 'KeyW') keys.jump = true;
+  if (e.code === 'Enter') keys.enter = true;
+  if (['Space','ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.code)) {
+    e.preventDefault();
+  }
+});
+document.addEventListener('keyup', e => {
+  if (e.code === 'ArrowLeft' || e.code === 'KeyA')  keys.left  = false;
+  if (e.code === 'ArrowRight' || e.code === 'KeyD') keys.right = false;
+  if (e.code === 'Space' || e.code === 'KeyZ' || e.code === 'ArrowUp' || e.code === 'KeyW') {
+    keys.jump = false;
+    jumpReleased = true;
+  }
+  if (e.code === 'Enter') keys.enter = false;
+});
+
+// ── Touch / mobile controls ──────────────────────────────────────────────────
+(function setupTouch() {
+  // Show overlay on touch-capable devices
+  if ('ontouchstart' in window || navigator.maxTouchPoints > 0) {
+    document.getElementById('touch-controls').style.display = 'block';
+  }
+
+  function bindBtn(id, keyName, onRelease) {
+    const el = document.getElementById(id);
+    const press = (ev) => {
+      ev.preventDefault();
+      keys[keyName] = true;
+      el.classList.add('pressed');
+    };
+    const release = (ev) => {
+      ev.preventDefault();
+      keys[keyName] = false;
+      el.classList.remove('pressed');
+      if (onRelease) onRelease();
+    };
+    el.addEventListener('touchstart',  press,   { passive: false });
+    el.addEventListener('touchend',    release, { passive: false });
+    el.addEventListener('touchcancel', release, { passive: false });
+    // Also support mouse clicks for desktop testing
+    el.addEventListener('mousedown', press);
+    el.addEventListener('mouseup',   release);
+    el.addEventListener('mouseleave',release);
+  }
+
+  bindBtn('btn-left',  'left');
+  bindBtn('btn-right', 'right');
+  // Jump button: on release, mark jump as released so next tap triggers a new jump
+  bindBtn('btn-jump', 'jump', () => { jumpReleased = true; });
+  bindBtn('btn-enter','enter');
+})();
+
+// ═══════════════════════════════════════════
+// AUDIO
+// ═══════════════════════════════════════════
+let audioCtx = null;
+let musicGain = null;
+let sfxGain = null;
+let musicPlaying = false;
+let musicNodes = [];
+
+function initAudio() {
+  if (audioCtx) return;
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  musicGain = audioCtx.createGain();
+  musicGain.gain.value = 0.18;
+  musicGain.connect(audioCtx.destination);
+  sfxGain = audioCtx.createGain();
+  sfxGain.gain.value = 0.25;
+  sfxGain.connect(audioCtx.destination);
+}
+
+// --- Sound effects ---
+function playTone(freq, duration, type, gainVal, dest) {
+  if (!audioCtx) return;
+  const osc = audioCtx.createOscillator();
+  const g = audioCtx.createGain();
+  osc.type = type || 'square';
+  osc.frequency.value = freq;
+  g.gain.setValueAtTime(gainVal || 0.15, audioCtx.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+  osc.connect(g);
+  g.connect(dest || sfxGain);
+  osc.start();
+  osc.stop(audioCtx.currentTime + duration);
+}
+
+function sfxJump() {
+  playTone(440, 0.12, 'square', 0.12);
+  playTone(580, 0.1, 'square', 0.08);
+}
+
+function sfxDoubleJump() {
+  playTone(600, 0.08, 'sine', 0.12);
+  setTimeout(() => playTone(800, 0.1, 'sine', 0.12), 50);
+  setTimeout(() => playTone(1000, 0.12, 'triangle', 0.1), 100);
+}
+
+function sfxCollect() {
+  playTone(880, 0.08, 'sine', 0.15);
+  setTimeout(() => playTone(1320, 0.15, 'sine', 0.12), 60);
+}
+
+function sfxStomp() {
+  playTone(200, 0.1, 'square', 0.15);
+  playTone(300, 0.15, 'square', 0.1);
+}
+
+function sfxHurt() {
+  playTone(150, 0.2, 'sawtooth', 0.12);
+  playTone(120, 0.3, 'sawtooth', 0.08);
+}
+
+function sfxDeath() {
+  const notes = [400, 350, 300, 200, 150];
+  notes.forEach((f, i) => setTimeout(() => playTone(f, 0.2, 'square', 0.1), i * 80));
+}
+
+function sfxPowerCell() {
+  const notes = [523, 659, 784, 1047];
+  notes.forEach((f, i) => setTimeout(() => playTone(f, 0.2, 'sine', 0.15), i * 100));
+}
+
+function sfxMenuSelect() {
+  playTone(660, 0.08, 'square', 0.1);
+  setTimeout(() => playTone(880, 0.12, 'square', 0.1), 70);
+}
+
+// --- Background music ---
+// Simple looping melody using oscillators
+const MELODY = [
+  // [note freq, duration in beats]
+  [523, 1], [587, 1], [659, 1], [784, 2], [659, 1],
+  [784, 1], [880, 2], [784, 1], [659, 1], [587, 2],
+  [523, 1], [440, 1], [523, 2], [587, 1], [523, 1],
+  [440, 1], [392, 2], [440, 1], [523, 2], [0, 1],
+];
+
+const BASS = [
+  [131, 4], [165, 4], [175, 4], [131, 4],
+  [110, 4], [131, 4], [98, 4], [131, 4],
+];
+
+let melodyIndex = 0;
+let bassIndex = 0;
+let nextMelodyTime = 0;
+let nextBassTime = 0;
+const BEAT = 0.22;
+
+function startMusic() {
+  if (!audioCtx || musicPlaying) return;
+  musicPlaying = true;
+  melodyIndex = 0;
+  bassIndex = 0;
+  nextMelodyTime = audioCtx.currentTime + 0.1;
+  nextBassTime = audioCtx.currentTime + 0.1;
+  scheduleMusicChunk();
+}
+
+function stopMusic() {
+  musicPlaying = false;
+  musicNodes.forEach(n => { try { n.stop(); } catch(e) {} });
+  musicNodes = [];
+}
+
+function scheduleMusicChunk() {
+  if (!musicPlaying || !audioCtx) return;
+
+  const lookAhead = 2.0; // schedule 2 seconds ahead
+  const now = audioCtx.currentTime;
+
+  // Schedule melody notes
+  while (nextMelodyTime < now + lookAhead) {
+    const [freq, beats] = MELODY[melodyIndex % MELODY.length];
+    const dur = beats * BEAT;
+    if (freq > 0) {
+      const osc = audioCtx.createOscillator();
+      const g = audioCtx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.value = freq;
+      g.gain.setValueAtTime(0.12, nextMelodyTime);
+      g.gain.exponentialRampToValueAtTime(0.001, nextMelodyTime + dur * 0.9);
+      osc.connect(g);
+      g.connect(musicGain);
+      osc.start(nextMelodyTime);
+      osc.stop(nextMelodyTime + dur);
+      musicNodes.push(osc);
+    }
+    nextMelodyTime += dur;
+    melodyIndex++;
+  }
+
+  // Schedule bass notes
+  while (nextBassTime < now + lookAhead) {
+    const [freq, beats] = BASS[bassIndex % BASS.length];
+    const dur = beats * BEAT;
+    if (freq > 0) {
+      const osc = audioCtx.createOscillator();
+      const g = audioCtx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = freq;
+      g.gain.setValueAtTime(0.08, nextBassTime);
+      g.gain.exponentialRampToValueAtTime(0.001, nextBassTime + dur * 0.85);
+      osc.connect(g);
+      g.connect(musicGain);
+      osc.start(nextBassTime);
+      osc.stop(nextBassTime + dur);
+      musicNodes.push(osc);
+    }
+    nextBassTime += dur;
+    bassIndex++;
+  }
+
+  // Clean up old nodes
+  musicNodes = musicNodes.filter(n => {
+    try { return n.context.currentTime < n._stopTime; } catch(e) { return false; }
+  });
+
+  // Keep scheduling
+  if (musicPlaying) {
+    setTimeout(scheduleMusicChunk, 500);
+  }
+}
+
+// ═══════════════════════════════════════════
+// CAMERA
+// ═══════════════════════════════════════════
+const camera = { x: 0, y: 0 };
+
+function updateCamera() {
+  const targetX = player.x + player.w / 2 - W / 2;
+  const targetY = player.y + player.h / 2 - H / 2;
+  camera.x += (targetX - camera.x) * 0.1;
+  camera.y += (targetY - camera.y) * 0.08;
+  // Clamp
+  camera.x = Math.max(0, Math.min(level.cols * T - W, camera.x));
+  camera.y = Math.max(0, Math.min(level.rows * T - H, camera.y));
+}
+
+// ═══════════════════════════════════════════
+// PARTICLES
+// ═══════════════════════════════════════════
+const particles = [];
+
+function spawnBurst(x, y, colors, count) {
+  for (let i = 0; i < count; i++) {
+    const angle = (Math.PI * 2 / count) * i + Math.random() * 0.3;
+    particles.push({
+      x, y,
+      vx: Math.cos(angle) * (1.5 + Math.random() * 2.5),
+      vy: Math.sin(angle) * (1.5 + Math.random() * 2.5),
+      life: 1.0,
+      color: colors[Math.floor(Math.random() * colors.length)],
+      r: 2 + Math.random() * 3,
+    });
+  }
+}
+
+function updateParticles() {
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.x += p.vx;
+    p.y += p.vy;
+    p.vy += 0.1;
+    p.life -= 0.04;
+    if (p.life <= 0) particles.splice(i, 1);
+  }
+}
+
+function drawParticles() {
+  particles.forEach(p => {
+    ctx.globalAlpha = p.life;
+    ctx.fillStyle = p.color;
+    ctx.beginPath();
+    ctx.arc(p.x - camera.x, p.y - camera.y, p.r, 0, Math.PI * 2);
+    ctx.fill();
+  });
+  ctx.globalAlpha = 1;
+}
+
+// ═══════════════════════════════════════════
+// ENEMIES
+// ═══════════════════════════════════════════
+let enemies = [];
+
+function spawnEnemies() {
+  enemies = [];
+  if (currentLevel === 0) {
+    enemies.push(patrolBot(8 * T, 17 * T - 24, 1 * T, 15 * T));
+    enemies.push(patrolBot(25 * T, 17 * T - 24, 21 * T, 34 * T));
+    enemies.push(patrolBot(45 * T, 17 * T - 24, 40 * T, 56 * T));
+    enemies.push(patrolBot(66 * T, 17 * T - 24, 62 * T, 79 * T));
+  } else if (currentLevel === 1) {
+    enemies.push(patrolBot(5 * T, 17 * T - 24, 0 * T, 11 * T));
+    enemies.push(patrolBot(20 * T, 17 * T - 24, 16 * T, 29 * T));
+    enemies.push(patrolBot(40 * T, 17 * T - 24, 33 * T, 52 * T));
+    enemies.push(patrolBot(62 * T, 17 * T - 24, 58 * T, 71 * T));
+    enemies.push(patrolBot(78 * T, 17 * T - 24, 74 * T, 89 * T));
+  } else if (currentLevel === 2) {
+    enemies.push(patrolBot(4 * T, 17 * T - 24, 0 * T, 9 * T));
+    enemies.push(patrolBot(18 * T, 17 * T - 24, 15 * T, 22 * T));
+    enemies.push(patrolBot(35 * T, 17 * T - 24, 28 * T, 42 * T));
+    enemies.push(patrolBot(55 * T, 17 * T - 24, 51 * T, 65 * T));
+    enemies.push(patrolBot(74 * T, 17 * T - 24, 72 * T, 79 * T));
+    enemies.push(patrolBot(88 * T, 17 * T - 24, 82 * T, 99 * T));
+  }
+}
+
+function patrolBot(x, y, minX, maxX) {
+  return {
+    x, y, w: 28, h: 24,
+    vx: 1, minX, maxX,
+    alive: true,
+    type: 'patrol',
+    frame: 0,
+  };
+}
+
+function updateEnemies() {
+  for (const e of enemies) {
+    if (!e.alive) continue;
+    e.frame++;
+    e.x += e.vx;
+
+    // Ground check: tile directly below enemy centre
+    const belowTileCol = Math.floor((e.x + e.w / 2) / T);
+    const belowTileRow = Math.floor((e.y + e.h + 2) / T);
+    const onGround = getTile(belowTileRow, belowTileCol) === SOLID;
+
+    // Wall check: scan the column the leading edge just entered,
+    // from sky (row 0) down to the enemy's bottom row.
+    // This catches both body-height tiles AND raised structures above.
+    const botRow = Math.floor((e.y + e.h - 1) / T);
+    const leadingCol = e.vx > 0
+      ? Math.floor((e.x + e.w) / T)
+      : Math.floor(e.x / T);
+    let hitWall = false;
+    for (let r = 0; r <= botRow; r++) {
+      if (getTile(r, leadingCol) === SOLID) { hitWall = true; break; }
+    }
+
+    const prevVx = e.vx;
+
+    if (e.x <= e.minX || e.x + e.w >= e.maxX || !onGround) {
+      // Patrol bound / ground edge: nudge and flip
+      e.vx *= -1;
+      e.x += e.vx * 2;
+    } else if (hitWall) {
+      // Tile wall: snap flush to the wall boundary, then flip
+      if (prevVx > 0) {
+        e.x = leadingCol * T - e.w;   // right edge touches wall left face
+      } else {
+        e.x = (leadingCol + 1) * T;   // left edge touches wall right face
+      }
+      e.vx *= -1;
+    }
+  }
+}
+
+function drawEnemies() {
+  for (const e of enemies) {
+    if (!e.alive) continue;
+    const sx = e.x - camera.x;
+    const sy = e.y - camera.y;
+
+    // Draw a little patrol bot — orange body with legs
+    const bob = Math.sin(e.frame * 0.15) * 2;
+
+    // Body
+    ctx.fillStyle = '#e65100';
+    ctx.beginPath();
+    ctx.roundRect(sx + 2, sy + 4 + bob, 24, 14, 4);
+    ctx.fill();
+
+    // Eyes
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(sx + 10, sy + 9 + bob, 3, 0, Math.PI * 2);
+    ctx.arc(sx + 20, sy + 9 + bob, 3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#d32f2f';
+    ctx.beginPath();
+    ctx.arc(sx + 10 + (e.vx > 0 ? 1 : -1), sy + 9 + bob, 1.5, 0, Math.PI * 2);
+    ctx.arc(sx + 20 + (e.vx > 0 ? 1 : -1), sy + 9 + bob, 1.5, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Legs
+    ctx.fillStyle = '#bf360c';
+    const legOffset = Math.sin(e.frame * 0.2) * 3;
+    ctx.fillRect(sx + 5, sy + 17 + bob, 4, 6 - legOffset);
+    ctx.fillRect(sx + 19, sy + 17 + bob, 4, 6 + legOffset);
+
+    // Antenna
+    ctx.strokeStyle = '#ff6f00';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(sx + 14, sy + 4 + bob);
+    ctx.lineTo(sx + 14, sy - 3 + bob);
+    ctx.stroke();
+    ctx.fillStyle = '#ff3d00';
+    ctx.beginPath();
+    ctx.arc(sx + 14, sy - 4 + bob, 2.5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+// ═══════════════════════════════════════════
+// MOVING PLATFORMS
+// ═══════════════════════════════════════════
+let movingPlatforms = [];
+
+function spawnMovingPlatforms() {
+  movingPlatforms = [];
+  if (currentLevel === 0) {
+    movingPlatforms.push(movPlat(19 * T, 15 * T, 19 * T, 15 * T, 20 * T, 10 * T, 0.015));
+    movingPlatforms.push(movPlat(55 * T, 16 * T, 55 * T, 16 * T, 59 * T, 16 * T, 0.012));
+  } else if (currentLevel === 1) {
+    movingPlatforms.push(movPlat(46 * T, 14 * T, 43 * T, 14 * T, 51 * T, 14 * T, 0.01));
+    movingPlatforms.push(movPlat(72 * T, 16 * T, 72 * T, 16 * T, 74 * T, 12 * T, 0.012));
+  } else if (currentLevel === 2) {
+    movingPlatforms.push(movPlat(46 * T, 13 * T, 43 * T, 13 * T, 51 * T, 13 * T, 0.01));
+    movingPlatforms.push(movPlat(80 * T, 16 * T, 80 * T, 16 * T, 82 * T, 10 * T, 0.01));
+    movingPlatforms.push(movPlat(64 * T, 14 * T, 62 * T, 14 * T, 68 * T, 14 * T, 0.012));
+  }
+}
+
+function movPlat(x, y, x1, y1, x2, y2, speed) {
+  return { x, y, w: T * 3, h: 10, x1, y1, x2, y2, speed, t: 0, prevX: x, prevY: y };
+}
+
+function updateMovingPlatforms() {
+  for (const p of movingPlatforms) {
+    p.prevX = p.x;
+    p.prevY = p.y;
+    p.t += p.speed;
+    const s = (Math.sin(p.t) + 1) / 2;
+    p.x = p.x1 + (p.x2 - p.x1) * s;
+    p.y = p.y1 + (p.y2 - p.y1) * s;
+  }
+}
+
+function drawMovingPlatforms() {
+  for (const p of movingPlatforms) {
+    const sx = p.x - camera.x;
+    const sy = p.y - camera.y;
+    ctx.fillStyle = '#5d4037';
+    ctx.beginPath();
+    ctx.roundRect(sx, sy, p.w, p.h, 3);
+    ctx.fill();
+    ctx.fillStyle = '#4e342e';
+    ctx.fillRect(sx + 4, sy + 2, p.w - 8, 2);
+    ctx.fillRect(sx + 4, sy + 6, p.w - 8, 2);
+    ctx.strokeStyle = '#3e2723';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.roundRect(sx, sy, p.w, p.h, 3);
+    ctx.stroke();
+  }
+}
+
+// ═══════════════════════════════════════════
+// PLAYER
+// ═══════════════════════════════════════════
+const player = {
+  x: 50, y: 0, w: 36, h: 50,
+  vx: 0, vy: 0,
+  grounded: false,
+  jumpsLeft: 2,
+  facing: 1,
+  maxSpeed: 1.5,
+  accel: 0.22,
+  friction: 0.78,
+  gravity: 0.38,
+  jumpForce: -13,
+  djumpForce: -11,
+  hp: 3,
+  maxHp: 3,
+  invincible: 0,
+  dead: false,
+  onMovingPlatform: null,
+};
+
+function resetPlayer() {
+  player.x = 50;
+  player.y = 14 * T;
+  player.vx = 0;
+  player.vy = 0;
+  player.grounded = false;
+  player.jumpsLeft = 2;
+  player.facing = 1;
+  player.hp = player.maxHp;
+  player.invincible = 0;
+  player.dead = false;
+  player.onMovingPlatform = null;
+}
+
+function hurtPlayer() {
+  if (player.invincible > 0 || player.dead) return;
+  player.hp--;
+  player.invincible = 90; // ~1.5 seconds
+  spawnBurst(player.x + player.w / 2, player.y + player.h / 2, ['#f44336', '#ff5252', '#fff'], 10);
+  sfxHurt();
+  if (player.hp <= 0) {
+    killPlayer();
+  }
+}
+
+function killPlayer() {
+  player.dead = true;
+  lives--;
+  spawnBurst(player.x + player.w / 2, player.y + player.h / 2, ['#f44336', '#ff5252', '#ff8a80', '#fff'], 20);
+  sfxDeath();
+  if (lives <= 0) {
+    setTimeout(() => { gameState = STATE.GAME_OVER; stopMusic(); }, 1000);
+  } else {
+    setTimeout(() => {
+      resetPlayer();
+      collected.clear();
+      countLevelBolts();
+    }, 1000);
+  }
+}
+
+// ═══════════════════════════════════════════
+// TILE HELPERS
+// ═══════════════════════════════════════════
+function getTile(row, col) {
+  if (row < 0 || row >= level.rows || col < 0 || col >= level.cols) return EMPTY;
+  return level.grid[row][col];
+}
+
+function isSolid(row, col) {
+  const t = getTile(row, col);
+  return t === SOLID;
+}
+
+// ═══════════════════════════════════════════
+// COLLISION
+// ═══════════════════════════════════════════
+function updatePlayer() {
+  if (player.dead) return;
+
+  if (player.invincible > 0) player.invincible--;
+
+  // Horizontal movement
+  if (keys.left)  { player.vx -= player.accel; player.facing = -1; }
+  if (keys.right) { player.vx += player.accel; player.facing = 1; }
+  if (!keys.left && !keys.right) {
+    player.vx *= player.friction;
+    if (Math.abs(player.vx) < 0.1) player.vx = 0;
+  }
+  player.vx = Math.max(-player.maxSpeed, Math.min(player.maxSpeed, player.vx));
+
+  // Jump / double jump
+  if (keys.jump && jumpReleased && player.jumpsLeft > 0) {
+    if (player.jumpsLeft === 2) {
+      player.vy = player.jumpForce;
+      sfxJump();
+    } else {
+      player.vy = player.djumpForce;
+      spawnBurst(player.x + player.w / 2, player.y + player.h, ['#4fc3f7', '#81d4fa', '#fff', '#b3e5fc'], 14);
+      sfxDoubleJump();
+    }
+    player.jumpsLeft--;
+    player.grounded = false;
+    jumpReleased = false;
+  }
+
+  // Variable jump height: cap upward velocity on early release (one-time cut)
+  if (!keys.jump && player.vy < -4) {
+    player.vy = -4;
+  }
+
+  // Gravity
+  player.vy += player.gravity;
+  if (player.vy > 12) player.vy = 12; // terminal velocity
+
+  // Moving platform carry
+  player.onMovingPlatform = null;
+
+  // Move X then resolve collisions
+  player.x += player.vx;
+  resolveHorizontal();
+
+  // Move Y then resolve collisions
+  player.y += player.vy;
+  resolveVertical();
+
+  // Moving platform check
+  for (const mp of movingPlatforms) {
+    if (player.vy >= 0 &&
+        player.x + player.w > mp.x && player.x < mp.x + mp.w &&
+        player.y + player.h >= mp.y && player.y + player.h <= mp.y + mp.h + 6) {
+      player.y = mp.y - player.h;
+      player.vy = 0;
+      player.grounded = true;
+      player.jumpsLeft = 2;
+      player.onMovingPlatform = mp;
+      // Carry
+      player.x += mp.x - mp.prevX;
+      player.y += mp.y - mp.prevY;
+    }
+  }
+
+  // World bounds — clamp to level edges
+  if (player.x < 0) { player.x = 0; player.vx = 0; }
+  if (player.x + player.w > level.cols * T) { player.x = level.cols * T - player.w; player.vx = 0; }
+
+  // Fell off map
+  if (player.y > level.rows * T + 100) {
+    killPlayer();
+  }
+
+  // Collectibles
+  checkCollectibles();
+
+  // Enemy collision
+  checkEnemyCollision();
+
+  // Spike check
+  checkSpikes();
+}
+
+function resolveHorizontal() {
+  const top = Math.floor(player.y / T);
+  const bot = Math.floor((player.y + player.h - 1) / T);
+
+  if (player.vx > 0) {
+    const col = Math.floor((player.x + player.w) / T);
+    for (let r = top; r <= bot; r++) {
+      if (isSolid(r, col)) {
+        player.x = col * T - player.w;
+        player.vx = 0;
+        break;
+      }
+    }
+  } else if (player.vx < 0) {
+    const col = Math.floor(player.x / T);
+    for (let r = top; r <= bot; r++) {
+      if (isSolid(r, col)) {
+        player.x = (col + 1) * T;
+        player.vx = 0;
+        break;
+      }
+    }
+  }
+}
+
+function resolveVertical() {
+  player.grounded = false;
+
+  if (player.vy > 0) {
+    // Falling — use narrow center hitbox so player falls off ledges naturally
+    // (only the center 12px of the player checks for ground)
+    const margin = 12;
+    const left = Math.floor((player.x + margin) / T);
+    const right = Math.floor((player.x + player.w - 1 - margin) / T);
+    const row = Math.floor((player.y + player.h) / T);
+    for (let c = left; c <= right; c++) {
+      const tile = getTile(row, c);
+      if (tile === SOLID || tile === ONEWAY) {
+        // For one-way, only collide if feet were above
+        if (tile === ONEWAY) {
+          const tileTop = row * T;
+          if (player.y + player.h - player.vy > tileTop + 4) continue;
+        }
+        player.y = row * T - player.h;
+        player.vy = 0;
+        player.grounded = true;
+        player.jumpsLeft = 2;
+        break;
+      }
+    }
+  } else if (player.vy < 0) {
+    // Rising — full width for ceiling checks
+    const left = Math.floor(player.x / T);
+    const right = Math.floor((player.x + player.w - 1) / T);
+    const row = Math.floor(player.y / T);
+    for (let c = left; c <= right; c++) {
+      if (isSolid(row, c)) {
+        player.y = (row + 1) * T;
+        player.vy = 0;
+        break;
+      }
+    }
+  }
+}
+
+function checkCollectibles() {
+  const pcx = player.x + player.w / 2;
+  const pcy = player.y + player.h / 2;
+
+  for (let r = 0; r < level.rows; r++) {
+    for (let c = 0; c < level.cols; c++) {
+      const tile = level.grid[r][c];
+      if (tile !== BOLT && tile !== PCELL) continue;
+      const key = r + ',' + c;
+      if (collected.has(key)) continue;
+
+      const tx = c * T + T / 2;
+      const ty = r * T + T / 2;
+      const dist = Math.hypot(pcx - tx, pcy - ty);
+
+      if (dist < 24) {
+        collected.add(key);
+        if (tile === BOLT) {
+          bolts++;
+          spawnBurst(tx, ty, ['#ffd600', '#ffab00', '#fff9c4'], 8);
+          sfxCollect();
+        } else if (tile === PCELL) {
+          spawnBurst(tx, ty, ['#00e676', '#69f0ae', '#b9f6ca', '#fff'], 20);
+          levelTransitionTimer = 120;
+          gameState = STATE.LEVEL_COMPLETE;
+          sfxPowerCell();
+        }
+      }
+    }
+  }
+}
+
+function checkEnemyCollision() {
+  for (const e of enemies) {
+    if (!e.alive) continue;
+    // AABB overlap
+    if (player.x + player.w > e.x && player.x < e.x + e.w &&
+        player.y + player.h > e.y && player.y < e.y + e.h) {
+      // Stomp: player falling and feet near top of enemy
+      if (player.vy > 0 && player.y + player.h < e.y + e.h / 2 + 4) {
+        e.alive = false;
+        player.vy = -8;
+        player.jumpsLeft = Math.max(player.jumpsLeft, 1);
+        spawnBurst(e.x + e.w / 2, e.y + e.h / 2, ['#e65100', '#ff6d00', '#ffab40', '#fff'], 12);
+        sfxStomp();
+      } else {
+        hurtPlayer();
+      }
+    }
+  }
+}
+
+function checkSpikes() {
+  const left = Math.floor(player.x / T);
+  const right = Math.floor((player.x + player.w - 1) / T);
+  const top = Math.floor(player.y / T);
+  const bot = Math.floor((player.y + player.h - 1) / T);
+  for (let r = top; r <= bot; r++) {
+    for (let c = left; c <= right; c++) {
+      if (getTile(r, c) === SPIKE) {
+        killPlayer();
+        return;
+      }
+    }
+  }
+}
+
+// ═══════════════════════════════════════════
+// DRAW R2-D2 (compact version)
+// ═══════════════════════════════════════════
+function drawR2D2(px, py, facing) {
+  const x = px - camera.x;
+  const y = py - camera.y;
+
+  // Blink when invincible
+  if (player.invincible > 0 && Math.floor(player.invincible / 4) % 2 === 0) return;
+
+  const pivot = x + player.w / 2;
+  ctx.save();
+  if (facing === -1) {
+    ctx.translate(pivot * 2, 0);
+    ctx.scale(-1, 1);
+  }
+
+  // Scale factor — original was 52x80, now we draw at ~36x50
+  const s = 0.625;
+  ctx.translate(x, y);
+  ctx.scale(s, s);
+
+  const TAU = Math.PI * 2;
+  const ox = 0; // offset x in local coords
+  const oy = 0;
+
+  // ── REAR LEG ──
+  ctx.fillStyle = '#b0bec5';
+  ctx.beginPath(); ctx.roundRect(ox+3, oy+57, 13, 18, [4,4,6,6]); ctx.fill();
+  ctx.strokeStyle = '#78909c'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.roundRect(ox+3, oy+57, 13, 18, [4,4,6,6]); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(ox+9, oy+58); ctx.lineTo(ox+9, oy+72); ctx.stroke();
+  ctx.fillStyle = '#90a4ae';
+  ctx.beginPath(); ctx.roundRect(ox+1, oy+73, 17, 4, 2); ctx.fill();
+  ctx.fillStyle = '#607d8b';
+  ctx.beginPath(); ctx.roundRect(ox+0, oy+75, 20, 5, [2,2,4,4]); ctx.fill();
+
+  // ── BODY ──
+  ctx.fillStyle = '#b0bec5';
+  ctx.beginPath(); ctx.roundRect(ox+5, oy+36, 42, 27, [3,8,5,3]); ctx.fill();
+  ctx.fillStyle = '#eceff1';
+  ctx.beginPath(); ctx.roundRect(ox+6, oy+34, 40, 27, [3,7,5,3]); ctx.fill();
+  ctx.fillStyle = '#1a237e';
+  ctx.beginPath(); ctx.roundRect(ox+6, oy+34, 40, 8, [3,7,0,0]); ctx.fill();
+  ctx.fillStyle = '#283593';
+  ctx.fillRect(ox+6, oy+39, 40, 3);
+  ctx.fillStyle = '#1565c0';
+  ctx.fillRect(ox+40, oy+34, 6, 27);
+  ctx.fillStyle = '#1976d2';
+  ctx.fillRect(ox+41, oy+42, 5, 17);
+  ctx.fillStyle = '#cfd8dc';
+  ctx.fillRect(ox+8, oy+43, 31, 16);
+  ctx.fillStyle = '#90a4ae';
+  ctx.fillRect(ox+9, oy+44, 7, 5);
+  ctx.fillRect(ox+9, oy+50, 7, 5);
+  ctx.fillRect(ox+9, oy+56, 7, 2);
+  ctx.fillStyle = '#b0bec5';
+  ctx.fillRect(ox+18, oy+44, 20, 7);
+  ctx.fillRect(ox+18, oy+53, 20, 5);
+  ctx.strokeStyle = '#90a4ae'; ctx.lineWidth = 0.5;
+  ctx.beginPath(); ctx.moveTo(ox+8, oy+49); ctx.lineTo(ox+39, oy+49); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(ox+8, oy+55); ctx.lineTo(ox+39, oy+55); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(ox+17, oy+43); ctx.lineTo(ox+17, oy+59); ctx.stroke();
+  ctx.fillStyle = '#f44336';
+  ctx.beginPath(); ctx.arc(ox+43, oy+60, 2.5, 0, TAU); ctx.fill();
+  ctx.fillStyle = '#ffee58';
+  ctx.beginPath(); ctx.arc(ox+43, oy+54, 2, 0, TAU); ctx.fill();
+  ctx.fillStyle = '#29b6f6';
+  ctx.beginPath(); ctx.arc(ox+43, oy+48, 2, 0, TAU); ctx.fill();
+  ctx.strokeStyle = '#7986cb'; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.roundRect(ox+6, oy+34, 40, 27, [3,7,5,3]); ctx.stroke();
+
+  // ── NECK ──
+  ctx.fillStyle = '#cfd8dc';
+  ctx.beginPath(); ctx.roundRect(ox+13, oy+31, 20, 5, 2); ctx.fill();
+  ctx.fillStyle = '#90a4ae';
+  ctx.fillRect(ox+13, oy+33, 20, 2);
+
+  // ── HEAD ──
+  const hcx = ox + 22, hcy = oy + 17, hr = 16;
+  ctx.fillStyle = '#eceff1';
+  ctx.beginPath(); ctx.arc(hcx, hcy, hr, 0, TAU); ctx.fill();
+  ctx.fillStyle = '#283593';
+  ctx.beginPath();
+  ctx.arc(hcx, hcy, hr, Math.PI * 0.45, Math.PI * 1.55);
+  ctx.lineTo(hcx, hcy); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#3949ab';
+  ctx.beginPath();
+  ctx.arc(hcx, hcy, hr * 0.65, Math.PI * 0.6, Math.PI * 1.4);
+  ctx.lineTo(hcx, hcy); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#1a237e';
+  ctx.beginPath();
+  ctx.arc(hcx, hcy, hr, Math.PI * 1.25, Math.PI * 1.75);
+  ctx.lineTo(hcx, hcy); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#42a5f5';
+  ctx.beginPath(); ctx.arc(hcx, hcy - hr + 5, 3, 0, TAU); ctx.fill();
+  ctx.strokeStyle = '#5c6bc0'; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.arc(hcx, hcy, hr, 0, TAU); ctx.stroke();
+
+  // ── EYE ──
+  const eyeX = hcx + hr - 5, eyeY = hcy;
+  ctx.fillStyle = '#212121';
+  ctx.beginPath(); ctx.arc(eyeX, eyeY, 7, 0, TAU); ctx.fill();
+  ctx.fillStyle = '#37474f';
+  ctx.beginPath(); ctx.arc(eyeX, eyeY, 5.5, 0, TAU); ctx.fill();
+  const eg = ctx.createRadialGradient(eyeX - 1, eyeY - 1.5, 0.5, eyeX, eyeY, 5);
+  eg.addColorStop(0, '#ff5252');
+  eg.addColorStop(0.6, '#c62828');
+  eg.addColorStop(1, '#7f0000');
+  ctx.fillStyle = eg;
+  ctx.beginPath(); ctx.arc(eyeX, eyeY, 4.5, 0, TAU); ctx.fill();
+  ctx.fillStyle = 'rgba(255,255,220,0.75)';
+  ctx.beginPath(); ctx.arc(eyeX - 1.5, eyeY - 2, 1.5, 0, TAU); ctx.fill();
+
+  // ── CENTER LEG ──
+  ctx.fillStyle = '#78909c';
+  ctx.beginPath(); ctx.roundRect(ox+20, oy+59, 11, 16, [2,2,4,4]); ctx.fill();
+  ctx.fillStyle = '#546e7a';
+  ctx.beginPath(); ctx.roundRect(ox+19, oy+73, 13, 5, 2); ctx.fill();
+
+  // ── FRONT LEG ──
+  ctx.fillStyle = '#cfd8dc';
+  ctx.beginPath(); ctx.roundRect(ox+36, oy+57, 13, 18, [4,4,6,6]); ctx.fill();
+  ctx.strokeStyle = '#90a4ae'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.roundRect(ox+36, oy+57, 13, 18, [4,4,6,6]); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(ox+42, oy+58); ctx.lineTo(ox+42, oy+72); ctx.stroke();
+  ctx.fillStyle = '#b0bec5';
+  ctx.beginPath(); ctx.roundRect(ox+34, oy+73, 17, 4, 2); ctx.fill();
+  ctx.fillStyle = '#90a4ae';
+  ctx.beginPath(); ctx.roundRect(ox+32, oy+75, 20, 5, [2,2,4,4]); ctx.fill();
+
+  ctx.restore();
+}
+
+// ═══════════════════════════════════════════
+// DRAW LEVEL
+// ═══════════════════════════════════════════
+function drawBackground() {
+  // Sky gradient
+  const grad = ctx.createLinearGradient(0, 0, 0, H);
+  grad.addColorStop(0, '#1a237e');
+  grad.addColorStop(0.4, '#42a5f5');
+  grad.addColorStop(0.7, '#81d4fa');
+  grad.addColorStop(1, '#b3e5fc');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, W, H);
+
+  // Parallax clouds
+  const cloudScroll = camera.x * 0.15;
+  drawCloud(100 - cloudScroll % 900, 60, 1.2);
+  drawCloud(350 - cloudScroll % 900, 100, 0.8);
+  drawCloud(600 - cloudScroll % 900, 40, 1.0);
+  drawCloud(850 - cloudScroll % 900, 120, 0.6);
+  drawCloud(200 - (cloudScroll * 0.6) % 900, 150, 0.9);
+  drawCloud(500 - (cloudScroll * 0.6) % 900, 180, 0.7);
+}
+
+function drawCloud(x, y, scale) {
+  ctx.fillStyle = 'rgba(255,255,255,0.5)';
+  ctx.beginPath();
+  ctx.arc(x, y, 20 * scale, 0, Math.PI * 2);
+  ctx.arc(x + 25 * scale, y - 8 * scale, 25 * scale, 0, Math.PI * 2);
+  ctx.arc(x + 50 * scale, y, 18 * scale, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawTiles() {
+  const startCol = Math.max(0, Math.floor(camera.x / T));
+  const endCol = Math.min(level.cols - 1, Math.floor((camera.x + W) / T) + 1);
+  const startRow = Math.max(0, Math.floor(camera.y / T));
+  const endRow = Math.min(level.rows - 1, Math.floor((camera.y + H) / T) + 1);
+
+  const time = Date.now() * 0.003;
+
+  for (let r = startRow; r <= endRow; r++) {
+    for (let c = startCol; c <= endCol; c++) {
+      const tile = level.grid[r][c];
+      if (tile === EMPTY) continue;
+
+      const key = r + ',' + c;
+      if ((tile === BOLT || tile === PCELL) && collected.has(key)) continue;
+
+      const sx = c * T - camera.x;
+      const sy = r * T - camera.y;
+
+      switch (tile) {
+        case SOLID:
+          drawSolidTile(sx, sy, r, c);
+          break;
+        case ONEWAY:
+          drawOneWayTile(sx, sy);
+          break;
+        case SPIKE:
+          drawSpikeTile(sx, sy);
+          break;
+        case BOLT:
+          drawBolt(sx, sy, time);
+          break;
+        case PCELL:
+          drawPowerCell(sx, sy, time);
+          break;
+      }
+    }
+  }
+}
+
+function drawSolidTile(sx, sy, r, c) {
+  // Check if top is exposed (no solid above)
+  const above = getTile(r - 1, c);
+  if (above !== SOLID) {
+    // Grass top
+    ctx.fillStyle = '#4caf50';
+    ctx.fillRect(sx, sy, T, 6);
+    ctx.fillStyle = '#66bb6a';
+    ctx.fillRect(sx, sy, T, 3);
+    // Dirt below
+    ctx.fillStyle = '#795548';
+    ctx.fillRect(sx, sy + 6, T, T - 6);
+    // Dirt texture
+    ctx.fillStyle = '#6d4c41';
+    ctx.fillRect(sx + 4, sy + 12, 3, 3);
+    ctx.fillRect(sx + 18, sy + 20, 4, 2);
+    ctx.fillRect(sx + 10, sy + 16, 2, 4);
+  } else {
+    // Underground
+    ctx.fillStyle = '#5d4037';
+    ctx.fillRect(sx, sy, T, T);
+    ctx.fillStyle = '#4e342e';
+    ctx.fillRect(sx + 2, sy + 2, T - 4, T - 4);
+    // Texture dots
+    ctx.fillStyle = '#6d4c41';
+    ctx.fillRect(sx + 6, sy + 8, 2, 2);
+    ctx.fillRect(sx + 20, sy + 18, 3, 2);
+  }
+  // Grid line
+  ctx.strokeStyle = 'rgba(0,0,0,0.15)';
+  ctx.lineWidth = 0.5;
+  ctx.strokeRect(sx, sy, T, T);
+}
+
+function drawOneWayTile(sx, sy) {
+  ctx.fillStyle = '#8d6e63';
+  ctx.beginPath();
+  ctx.roundRect(sx, sy, T, 8, 2);
+  ctx.fill();
+  ctx.fillStyle = '#6d4c41';
+  ctx.fillRect(sx + 4, sy + 2, T - 8, 3);
+  ctx.strokeStyle = '#4e342e';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.roundRect(sx, sy, T, 8, 2);
+  ctx.stroke();
+}
+
+function drawSpikeTile(sx, sy) {
+  ctx.fillStyle = '#d32f2f';
+  for (let i = 0; i < 4; i++) {
+    ctx.beginPath();
+    ctx.moveTo(sx + i * 8, sy + T);
+    ctx.lineTo(sx + i * 8 + 4, sy + 6);
+    ctx.lineTo(sx + i * 8 + 8, sy + T);
+    ctx.fill();
+  }
+  ctx.fillStyle = '#f44336';
+  for (let i = 0; i < 4; i++) {
+    ctx.beginPath();
+    ctx.moveTo(sx + i * 8 + 1, sy + T);
+    ctx.lineTo(sx + i * 8 + 4, sy + 10);
+    ctx.lineTo(sx + i * 8 + 7, sy + T);
+    ctx.fill();
+  }
+}
+
+function drawBolt(sx, sy, time) {
+  const bob = Math.sin(time + sx * 0.1) * 3;
+  const cx = sx + T / 2;
+  const cy = sy + T / 2 + bob;
+
+  // Glow
+  ctx.fillStyle = 'rgba(255,214,0,0.3)';
+  ctx.beginPath();
+  ctx.arc(cx, cy, 12, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Bolt shape (hexagon)
+  ctx.fillStyle = '#ffd600';
+  ctx.beginPath();
+  for (let i = 0; i < 6; i++) {
+    const a = (Math.PI * 2 / 6) * i - Math.PI / 2;
+    const r = 7;
+    if (i === 0) ctx.moveTo(cx + Math.cos(a) * r, cy + Math.sin(a) * r);
+    else ctx.lineTo(cx + Math.cos(a) * r, cy + Math.sin(a) * r);
+  }
+  ctx.fill();
+  ctx.fillStyle = '#ffab00';
+  ctx.beginPath();
+  for (let i = 0; i < 6; i++) {
+    const a = (Math.PI * 2 / 6) * i - Math.PI / 2;
+    const r = 4;
+    if (i === 0) ctx.moveTo(cx + Math.cos(a) * r, cy + Math.sin(a) * r);
+    else ctx.lineTo(cx + Math.cos(a) * r, cy + Math.sin(a) * r);
+  }
+  ctx.fill();
+}
+
+function drawPowerCell(sx, sy, time) {
+  const bob = Math.sin(time * 2) * 5;
+  const cx = sx + T / 2;
+  const cy = sy + T / 2 + bob;
+  const pulse = Math.sin(time * 3) * 0.3 + 0.7;
+
+  // Glow
+  ctx.fillStyle = `rgba(0,230,118,${0.2 * pulse})`;
+  ctx.beginPath();
+  ctx.arc(cx, cy, 20, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Outer ring
+  ctx.strokeStyle = '#00e676';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(cx, cy, 12, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // Inner diamond
+  ctx.fillStyle = '#69f0ae';
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - 8);
+  ctx.lineTo(cx + 6, cy);
+  ctx.lineTo(cx, cy + 8);
+  ctx.lineTo(cx - 6, cy);
+  ctx.closePath();
+  ctx.fill();
+
+  // Core
+  ctx.fillStyle = '#fff';
+  ctx.beginPath();
+  ctx.arc(cx, cy, 3, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+// ═══════════════════════════════════════════
+// HUD
+// ═══════════════════════════════════════════
+function drawHUD() {
+  // Health
+  for (let i = 0; i < player.maxHp; i++) {
+    const hx = 16 + i * 28;
+    if (i < player.hp) {
+      ctx.fillStyle = '#42a5f5';
+      ctx.strokeStyle = '#1e88e5';
+    } else {
+      ctx.fillStyle = '#37474f';
+      ctx.strokeStyle = '#263238';
+    }
+    ctx.lineWidth = 1.5;
+    // Shield icon
+    ctx.beginPath();
+    ctx.moveTo(hx + 10, hx === 16 ? 14 : 14);
+    ctx.moveTo(hx + 10, 14);
+    ctx.lineTo(hx + 20, 18);
+    ctx.lineTo(hx + 20, 28);
+    ctx.quadraticCurveTo(hx + 10, 36, hx + 10, 36);
+    ctx.quadraticCurveTo(hx + 0, 36, hx + 0, 28);
+    ctx.lineTo(hx + 0, 18);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+  }
+
+  // Bolts
+  ctx.fillStyle = '#ffd600';
+  ctx.font = 'bold 16px monospace';
+  ctx.fillText(`x${bolts}`, 110, 30);
+
+  // Bolt icon
+  ctx.fillStyle = '#ffd600';
+  ctx.beginPath();
+  for (let i = 0; i < 6; i++) {
+    const a = (Math.PI * 2 / 6) * i - Math.PI / 2;
+    const r = 6;
+    if (i === 0) ctx.moveTo(100 + Math.cos(a) * r, 25 + Math.sin(a) * r);
+    else ctx.lineTo(100 + Math.cos(a) * r, 25 + Math.sin(a) * r);
+  }
+  ctx.fill();
+
+  // Lives
+  ctx.fillStyle = '#ef5350';
+  ctx.font = 'bold 14px monospace';
+  ctx.fillText(`Lives: ${lives}`, W - 100, 28);
+
+  // Level name
+  const names = ['Cloud Meadow', 'Vine Ruins', 'Mech Tower'];
+  ctx.fillStyle = 'rgba(255,255,255,0.6)';
+  ctx.font = '12px monospace';
+  ctx.fillText(`Level ${currentLevel + 1}: ${names[currentLevel] || ''}`, W / 2 - 60, 20);
+}
+
+function drawControls() {
+  ctx.fillStyle = 'rgba(0,0,0,0.4)';
+  ctx.fillRect(8, H - 32, 380, 24);
+  ctx.fillStyle = '#ddd';
+  ctx.font = '11px monospace';
+  ctx.fillText('Arrow/WASD move   Space/Z/W/Up jump (double jump!)', 16, H - 15);
+}
+
+function drawJumpIndicator() {
+  if (player.grounded || player.dead) return;
+  const dotY = player.y - 10 - camera.y;
+  const dotX = player.x + player.w / 2 - camera.x;
+  for (let i = 0; i < player.jumpsLeft; i++) {
+    ctx.fillStyle = '#4fc3f7';
+    ctx.beginPath();
+    ctx.arc(dotX - 5 + i * 10, dotY, 3, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+// ═══════════════════════════════════════════
+// SCREENS
+// ═══════════════════════════════════════════
+function drawMenuScreen() {
+  // Background
+  const grad = ctx.createLinearGradient(0, 0, 0, H);
+  grad.addColorStop(0, '#0d47a1');
+  grad.addColorStop(1, '#1a237e');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, W, H);
+
+  // Clouds
+  const t = Date.now() * 0.001;
+  drawCloud(100 + Math.sin(t * 0.3) * 20, 100, 1.5);
+  drawCloud(400 + Math.sin(t * 0.2 + 1) * 30, 150, 1.2);
+  drawCloud(650 + Math.sin(t * 0.25 + 2) * 25, 80, 1.0);
+
+  // Title
+  ctx.fillStyle = '#fff';
+  ctx.font = 'bold 48px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('SKY GARDEN', W / 2, 200);
+
+  ctx.font = '20px monospace';
+  ctx.fillStyle = '#81d4fa';
+  ctx.fillText('An R2-D2 Adventure', W / 2, 240);
+
+  // R2-D2 preview
+  drawR2D2(W / 2 - 18 + camera.x, 280 + camera.y, 1);
+
+  // Prompt
+  const blink = Math.sin(t * 3) > 0;
+  if (blink) {
+    ctx.fillStyle = '#fff';
+    ctx.font = '18px monospace';
+    ctx.fillText('Press ENTER to Start', W / 2, 420);
+  }
+
+  ctx.fillStyle = 'rgba(255,255,255,0.4)';
+  ctx.font = '12px monospace';
+  ctx.fillText('Arrow Keys / WASD to move  |  Space / Z to Jump', W / 2, 480);
+  ctx.fillText('Double Jump available!  |  Stomp enemies!', W / 2, 500);
+
+  ctx.textAlign = 'left';
+}
+
+function drawLevelComplete() {
+  ctx.fillStyle = 'rgba(0,0,0,0.5)';
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.fillStyle = '#69f0ae';
+  ctx.font = 'bold 36px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('LEVEL COMPLETE!', W / 2, H / 2 - 30);
+
+  ctx.fillStyle = '#fff';
+  ctx.font = '18px monospace';
+  ctx.fillText(`Bolts: ${bolts}`, W / 2, H / 2 + 20);
+
+  if (levelTransitionTimer <= 60) {
+    const blink = Math.sin(Date.now() * 0.006) > 0;
+    if (blink) {
+      ctx.fillText('Press ENTER to continue', W / 2, H / 2 + 60);
+    }
+  }
+
+  ctx.textAlign = 'left';
+}
+
+function drawGameOver() {
+  ctx.fillStyle = 'rgba(0,0,0,0.7)';
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.fillStyle = '#f44336';
+  ctx.font = 'bold 42px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('GAME OVER', W / 2, H / 2 - 30);
+
+  ctx.fillStyle = '#fff';
+  ctx.font = '18px monospace';
+  ctx.fillText(`Total Bolts: ${bolts}`, W / 2, H / 2 + 20);
+
+  const blink = Math.sin(Date.now() * 0.006) > 0;
+  if (blink) {
+    ctx.fillText('Press ENTER to Retry', W / 2, H / 2 + 60);
+  }
+
+  ctx.textAlign = 'left';
+}
+
+function drawWinScreen() {
+  const grad = ctx.createLinearGradient(0, 0, 0, H);
+  grad.addColorStop(0, '#1a237e');
+  grad.addColorStop(0.5, '#283593');
+  grad.addColorStop(1, '#0d47a1');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, W, H);
+
+  const t = Date.now() * 0.002;
+  // Sparkles
+  for (let i = 0; i < 20; i++) {
+    const sx = (i * 137 + Math.sin(t + i) * 50) % W;
+    const sy = (i * 89 + Math.cos(t * 0.7 + i) * 40) % H;
+    ctx.fillStyle = `rgba(255,255,255,${0.3 + Math.sin(t + i * 0.5) * 0.3})`;
+    ctx.beginPath();
+    ctx.arc(sx, sy, 2, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  ctx.fillStyle = '#ffd600';
+  ctx.font = 'bold 48px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('YOU WIN!', W / 2, H / 2 - 60);
+
+  ctx.fillStyle = '#69f0ae';
+  ctx.font = '24px monospace';
+  ctx.fillText('R2-D2 saved the Sky Garden!', W / 2, H / 2 - 10);
+
+  ctx.fillStyle = '#fff';
+  ctx.font = '20px monospace';
+  ctx.fillText(`Total Bolts: ${bolts}`, W / 2, H / 2 + 40);
+  ctx.fillText(`Lives Remaining: ${lives}`, W / 2, H / 2 + 70);
+
+  const blink = Math.sin(t * 1.5) > 0;
+  if (blink) {
+    ctx.fillText('Press ENTER to Play Again', W / 2, H / 2 + 120);
+  }
+
+  ctx.textAlign = 'left';
+}
+
+// ═══════════════════════════════════════════
+// LEVEL MANAGEMENT
+// ═══════════════════════════════════════════
+function loadLevel(idx) {
+  currentLevel = idx;
+  level = LEVELS[idx];
+  collected.clear();
+  resetPlayer();
+  camera.x = 0;
+  camera.y = 0;
+  particles.length = 0;
+  spawnEnemies();
+  spawnMovingPlatforms();
+  countLevelBolts();
+}
+
+function countLevelBolts() {
+  totalBolts = 0;
+  for (let r = 0; r < level.rows; r++) {
+    for (let c = 0; c < level.cols; c++) {
+      if (level.grid[r][c] === BOLT) totalBolts++;
+    }
+  }
+}
+
+function startGame() {
+  initAudio();
+  sfxMenuSelect();
+  bolts = 0;
+  lives = 3;
+  loadLevel(0);
+  gameState = STATE.PLAYING;
+  startMusic();
+}
+
+// ═══════════════════════════════════════════
+// GAME LOOP
+// ═══════════════════════════════════════════
+let lastTime = 0;
+let enterWasDown = false;
+
+function loop(timestamp) {
+  const dt = Math.min((timestamp - lastTime) / 16.67, 3);
+  lastTime = timestamp;
+
+  const enterPressed = keys.enter && !enterWasDown;
+  enterWasDown = keys.enter;
+
+  switch (gameState) {
+    case STATE.MENU:
+      drawMenuScreen();
+      if (enterPressed) startGame();
+      break;
+
+    case STATE.PLAYING:
+      updatePlayer();
+      updateEnemies();
+      updateMovingPlatforms();
+      updateParticles();
+      updateCamera();
+
+      drawBackground();
+      drawTiles();
+      drawMovingPlatforms();
+      drawEnemies();
+      if (!player.dead) {
+        drawR2D2(player.x, player.y, player.facing);
+        drawJumpIndicator();
+      }
+      drawParticles();
+      drawHUD();
+      drawControls();
+      break;
+
+    case STATE.LEVEL_COMPLETE:
+      // Keep drawing the level behind the overlay
+      drawBackground();
+      drawTiles();
+      drawMovingPlatforms();
+      drawEnemies();
+      drawParticles();
+      updateParticles();
+      drawLevelComplete();
+
+      if (levelTransitionTimer > 0) {
+        levelTransitionTimer--;
+      } else if (enterPressed) {
+        if (currentLevel + 1 < LEVELS.length) {
+          loadLevel(currentLevel + 1);
+          gameState = STATE.PLAYING;
+        } else {
+          gameState = STATE.WIN;
+          stopMusic();
+        }
+      }
+      break;
+
+    case STATE.GAME_OVER:
+      drawGameOver();
+      if (enterPressed) {
+        sfxMenuSelect();
+        gameState = STATE.MENU;
+      }
+      break;
+
+    case STATE.WIN:
+      drawWinScreen();
+      if (enterPressed) {
+        sfxMenuSelect();
+        gameState = STATE.MENU;
+      }
+      break;
+  }
+
+  requestAnimationFrame(loop);
+}
+
+requestAnimationFrame(ts => { lastTime = ts; requestAnimationFrame(loop); });
+</script>
+</body>
+</html>
