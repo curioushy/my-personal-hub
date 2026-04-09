@@ -103,7 +103,7 @@ function dlogFrame(frameNum,w,h,result,scale){
 // Downscale canvas for QR detection — large frames hurt jsQR performance and accuracy
 const scv=document.createElement('canvas');
 const sctx=scv.getContext('2d',{willReadFrequently:true});
-const MAX_QR_DIM=800; // max dimension to feed jsQR
+const MAX_QR_DIM=1080; // max dimension to feed jsQR — preserve detail for QR detection
 
 function tryDecodeQR(srcCanvas,srcW,srcH){
   // Try at original size if small enough, otherwise downscale
