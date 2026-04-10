@@ -88,6 +88,7 @@
     .badge.live { background: rgba(34, 197, 94, 0.12); color: var(--green); }
     .badge.wip { background: rgba(234, 179, 8, 0.12); color: var(--yellow); }
     .badge.auto { background: rgba(168, 85, 247, 0.12); color: var(--purple); }
+    .badge.gh { background: rgba(161, 161, 170, 0.12); color: var(--text-muted); }
 
     .arrow {
       color: var(--text-muted); font-size: 18px; flex-shrink: 0;
@@ -111,9 +112,14 @@
     .footer a { color: var(--text-muted); text-decoration: none; transition: color 0.15s; }
     .footer a:hover { color: var(--text); }
 
-    .others-toggle { cursor: pointer; user-select: none; transition: color 0.15s; }
+    .others-toggle {
+      cursor: pointer; user-select: none; transition: color 0.15s;
+    }
     .others-toggle:hover { color: var(--text); }
-    .toggle-arrow { display: inline-block; transition: transform 0.2s; font-size: 10px; margin-left: 4px; }
+    .toggle-arrow {
+      display: inline-block; transition: transform 0.2s;
+      font-size: 10px; margin-left: 4px;
+    }
     .toggle-arrow.open { transform: rotate(90deg); }
 
     @media (max-width: 480px) {
@@ -136,7 +142,7 @@
       </div>
     </header>
 
-    <!-- FEATURED PROJECTS — manually curated -->
+    <!-- FEATURED PROJECTS -->
     <div class="section-label">Featured</div>
     <div class="projects" id="featured">
 
@@ -163,24 +169,6 @@
         <div class="project-info">
           <h3>Basic Chinese 基本华文 <span class="badge live">Live</span></h3>
           <p>Flashcard-style Mandarin learning app — 300 words &amp; phrases across 10 categories, with audio pronunciation and quizzes.</p>
-        </div>
-        <span class="arrow">→</span>
-      </a>
-
-      <a href="/optical-transfer/qr-transmitter.html" class="project-card">
-        <div class="project-icon" style="background: rgba(234,179,8,0.12);"><span>📡</span></div>
-        <div class="project-info">
-          <h3>QR Transfer — Transmitter <span class="badge live">Live</span></h3>
-          <p>Send files via animated QR codes from your screen.</p>
-        </div>
-        <span class="arrow">→</span>
-      </a>
-
-      <a href="/optical-transfer/qr-receiver.html" class="project-card">
-        <div class="project-icon" style="background: rgba(234,179,8,0.12);"><span>📷</span></div>
-        <div class="project-info">
-          <h3>QR Transfer — Receiver <span class="badge live">Live</span></h3>
-          <p>Receive files via animated QR codes — camera or video.</p>
         </div>
         <span class="arrow">→</span>
       </a>
@@ -219,6 +207,25 @@
       Others <span class="toggle-arrow" id="toggleArrow">▸</span>
     </div>
     <div class="projects others-section" id="others" style="display: none;">
+
+      <a href="/optical-transfer/qr-transmitter.html" class="project-card">
+        <div class="project-icon" style="background: rgba(234,179,8,0.12);"><span>📡</span></div>
+        <div class="project-info">
+          <h3>QR Transfer — Transmitter <span class="badge live">Live</span></h3>
+          <p>Send files via animated QR codes from your screen.</p>
+        </div>
+        <span class="arrow">→</span>
+      </a>
+
+      <a href="/optical-transfer/qr-receiver.html" class="project-card">
+        <div class="project-icon" style="background: rgba(234,179,8,0.12);"><span>📷</span></div>
+        <div class="project-info">
+          <h3>QR Transfer — Receiver <span class="badge live">Live</span></h3>
+          <p>Receive files via animated QR codes — camera or video.</p>
+        </div>
+        <span class="arrow">→</span>
+      </a>
+
       <a href="/optical-transfer/transmitter.html" class="project-card">
         <div class="project-icon" style="background: rgba(6,182,212,0.12);"><span>📡</span></div>
         <div class="project-info">
@@ -227,6 +234,7 @@
         </div>
         <span class="arrow">→</span>
       </a>
+
       <a href="/optical-transfer/receiver.html" class="project-card">
         <div class="project-icon" style="background: rgba(6,182,212,0.12);"><span>📷</span></div>
         <div class="project-info">
@@ -235,12 +243,30 @@
         </div>
         <span class="arrow">→</span>
       </a>
+
     </div>
 
-    <!-- AUTO-DISCOVERED — populated from GitHub API at load time -->
+    <!-- ALL REPOS — auto-discovered from GitHub -->
     <div class="section-label">All Repos <span style="text-transform: none; opacity: 0.6;">(auto-discovered from GitHub)</span></div>
     <div class="projects" id="discovered">
       <div class="loading-text" id="loading">Loading repos...</div>
+    </div>
+
+    <!-- MISCELLANEOUS PROJECTS — direct GitHub links -->
+    <div class="section-label">Miscellaneous Projects <span style="text-transform: none; opacity: 0.6;">(GitHub)</span></div>
+    <div class="projects" id="misc">
+
+      <a href="https://github.com/curioushy/display-manager" class="project-card" target="_blank" rel="noopener">
+        <div class="project-icon" style="background: rgba(168,85,247,0.12);"><span>🖥️</span></div>
+        <div class="project-info">
+          <h3>Display Manager <span class="badge gh">GitHub</span></h3>
+          <p>macOS menu bar app for multi-display management — one-click mirror/extend, presets, auto-apply.</p>
+        </div>
+        <span class="arrow">→</span>
+      </a>
+
+      <!-- Add more GitHub-only projects here -->
+
     </div>
 
     <footer class="footer">
@@ -259,7 +285,8 @@
     }
 
     const GITHUB_USER = 'curioushy';
-    const HIDDEN_REPOS = ['my-personal-hub', 'Slidr', 'cv-chat-site', 'sky-garden'];
+    // Hide repos already shown elsewhere on the page
+    const HIDDEN_REPOS = ['my-personal-hub', 'Slidr', 'cv-chat-site', 'sky-garden', 'display-manager'];
     const VERCEL_OVERRIDES = {};
 
     const ICON_COLORS = [
